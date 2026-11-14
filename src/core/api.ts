@@ -18,6 +18,7 @@ export const api = {
   // config
   getConfig: () => invoke<AppConfig>('get_config'),
   saveConfig: (config: AppConfig) => invoke<AppConfig>('save_config', { config }),
+  configReset: () => invoke<AppConfig>('config_reset'),
   appInfo: () => invoke<AppInfo>('app_info'),
   appCheckUpdate: (force = false) => invoke<AppUpdate>('app_check_update', { force }),
   setWorkspace: (path: string) => invoke<string>('set_workspace', { path }),

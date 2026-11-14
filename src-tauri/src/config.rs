@@ -801,7 +801,20 @@ impl Default for AppConfig {
     }
 }
 
+/// Where the app keeps config.json / sessions / extensions / skills.
+///
+/// `IRIXEN_HOME` overrides the OS location verbatim. Test and automation runs
+/// must set it (see `scripts/dev/cdp-check.cjs`): a plain release build and a
+/// probe instance otherwise share `%APPDATA%\IRIXEN Code`, so a test that
+/// finishes the first-run wizard silently marks the *installed* app as set up
+/// and its wizard never comes back.
 pub fn base_dir() -> PathBuf {
+    if let Some(home) = std::env::var_os("IRIXEN_HOME") {
+        let p = PathBuf::from(home);
+        if !p.as_os_str().is_empty() {
+            return p;
+        }
+    }
     dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join(APP_DIR_NAME)

@@ -10,6 +10,7 @@ import { applyTheme, customVarDefaults, parseCustomColors } from './theme';
 import { debounce } from '../core/dom';
 import { isLoopback } from '../core/providers';
 import { ALL_EFFORTS, effortLabel } from '../core/effort';
+import { openOnboarding } from './onboarding';
 import type { AppConfig, AppUpdate, Effort, McpServerConfig, ProviderConfig, Protocol } from '../types';
 
 type Tab = 'providers' | 'agent' | 'appearance' | 'mcp' | 'about';
@@ -944,7 +945,41 @@ function aboutTab(): HTMLElement {
   const updateBox = h('div', { class: 'about-update' });
   renderUpdateBox(updateBox);
 
-  return h('div', null, h('h3', null, t('app.name')), kv, updateBox);
+  return h('div', null, h('h3', null, t('app.name')), kv, updateBox, maintenanceBox());
+}
+
+/** Recovery hatch for a profile that was never really set up: re-run the wizard
+ *  without touching anything the user typed, or wipe the config back to factory
+ *  defaults (the previous file is kept as `config.json.bak-<epoch>`). */
+function maintenanceBox(): HTMLElement {
+  const rerun = h('button', {
+    class: 'btn',
+    title: t('onboard.reopen'),
+    onClick: () => openOnboarding(),
+  }, icon('spark', 12), t('onboard.reopen'));
+
+  const reset = h('button', {
+    class: 'btn danger',
+    title: t('about.resetProfile'),
+    onClick: async () => {
+      if (!(await confirmDialog(t('about.resetProfile'), t('about.resetConfirm')))) return;
+      try {
+        await api.configReset();
+      } catch (e) {
+        toast(errText(e), 'err', 4200);
+        return;
+      }
+      // A full reload is the only honest way back to a first-run window: every
+      // panel, session and provider picker was drawn from the old config.
+      location.reload();
+    },
+  }, icon('trash', 12), t('about.resetProfile'));
+
+  return h('div', { class: 'about-maint' },
+    h('h3', null, t('about.maintenance')),
+    h('div', { class: 'row wrap' }, rerun, reset),
+    h('p', { class: 'about-maint-hint' }, t('about.resetHint')),
+  );
 }
 
 async function runUpdateCheck(box: HTMLElement) {

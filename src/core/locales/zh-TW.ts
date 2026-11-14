@@ -491,4 +491,8 @@ export const zhTW = {
   'about.releaseNotes': "更新說明",
   'about.openReleases': "前往 GitHub 發佈頁",
   'about.noRelease': "GitHub 上尚無發佈版本",
+  'about.maintenance': "維護",
+  'about.resetProfile': "恢復預設設定",
+  'about.resetConfirm': "將清除目前所有設定（供應商、模型、主題、語言、工作區），並重新進入首次啟動設定。舊設定會備份在設定目錄中。要繼續嗎？",
+  'about.resetHint': "安裝後沒有出現首次啟動設定，或介面狀態不對時，用這裡恢復。",
 };

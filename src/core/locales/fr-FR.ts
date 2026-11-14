@@ -493,4 +493,8 @@ export const frFR = {
   'about.releaseNotes': "Notes de version",
   'about.openReleases': "Ouvrir la page des versions",
   'about.noRelease': "Aucune version publiée sur GitHub",
+  'about.maintenance': "Maintenance",
+  'about.resetProfile': "Réinitialiser les réglages",
+  'about.resetConfirm': "Tous les réglages (fournisseurs, modèles, thème, langue, espace de travail) seront effacés et la configuration initiale se relancera. L’ancienne configuration est conservée en sauvegarde dans le dossier de configuration. Continuer ?",
+  'about.resetHint': "À utiliser si la configuration initiale n’est pas apparue après l’installation ou si l’application s’ouvre dans un état incohérent.",
 };

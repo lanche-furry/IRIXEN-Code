@@ -113,6 +113,29 @@ WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222 npm run app:d
 
 排查布局问题时的固定动作：量 `.app / .body / .sidebar / .stage / .chat` 的 `getBoundingClientRect()` 和 `scrollWidth > clientWidth`。只要有一层宽度远超窗口，就是 min-content 撑破（见 [架构设计 · 布局契约](ARCHITECTURE.md#9-布局契约)）。
 
+### 测试实例必须隔离配置目录（`IRIXEN_HOME`）
+
+窗口读的是**真实用户配置** `%APPDATA%\IRIXEN Code`（`config::base_dir`）。用 CDP 点完首次启动向导、改过主题、选过供应商，写下的就是这份正式配置；之后再安装 NSIS 包，安装出来的应用会认为"已经初始化过"，**首次启动设置不会再出现**，看起来就像安装后没有初始化。
+
+所以任何自动化/手动验证都要把配置指到临时目录：
+
+```bash
+IRIXEN_HOME="E:/irixen-build/_probe-home" \
+  WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9555 \
+  ./irixen-build/release/irixen-code.exe
+```
+
+`IRIXEN_HOME` 会同时接管 config.json、sessions、extensions、skills 的位置，删掉整个目录就等于全新安装。验证完不要再用默认目录跑探针。
+
+### 安装包与残留配置
+
+`src-tauri/installer.nsh` 通过 `bundle.windows.nsis.installerHooks` 挂进 NSIS：
+
+- **全新安装**（`$UpdateMode <> 1`）：把旧的 `config.json` 备份成 `config.json.preinstall` 后删除，保证向导会跑；覆盖升级不动任何设置。
+- **卸载且勾选"删除应用数据"**：连 `%APPDATA%\IRIXEN Code`（真实配置目录）和 `%LOCALAPPDATA%\com.irixen.code`（WebView2 缓存）一起删。模板自带的清理只认 bundle id，删不到 `IRIXEN Code` 这个目录。
+
+已经装坏的机器不必重装：设置 → 关于 → 维护 → **恢复默认设置**（`config_reset`，旧文件备份成 `config.json.bak-<时间戳>` 后重载窗口，向导会重新出现），或调色板里的 **重新运行首次启动设置**。
+
 ## 版本管理（GitHub Releases）
 
 版本真值是 semver，同时写在三处，任何时候都必须一致（否则「关于」页报告的版本和安装包实际携带的版本会不一样）：

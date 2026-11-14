@@ -7,6 +7,14 @@
 //
 //   WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222 npm run app:dev
 //
+// Always point a probe instance at its own profile as well — the window writes
+// the real one (%APPDATA%\IRIXEN Code) otherwise, and a probe that finishes the
+// first-run wizard leaves the installed app believing setup is already done:
+//
+//   IRIXEN_HOME=E:/irixen-build/_probe-home \
+//     WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222 \
+//     ./irixen-build/release/irixen-code.exe
+//
 // This exists because a webview panel can render and still be dead: a missing
 // origin, a blocked script and a blank frame all look the same from the outside.
 // Evaluating inside the page is the only way to tell them apart.

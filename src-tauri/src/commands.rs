@@ -51,6 +51,43 @@ pub fn save_config(state: State<'_, AppState>, mut config: AppConfig) -> Result<
     Ok(config)
 }
 
+/// Reset the persisted profile back to factory defaults and arm the first-run
+/// wizard again.
+///
+/// This is the in-app twin of deleting `config.json` by hand — the only way out
+/// of a profile that was written by an earlier build or by a test run, where
+/// `onboarding_completed` is already `true` and the setup flow therefore never
+/// appears. The old file is kept next to it as `config.json.bak-<epoch>` so an
+/// API key typed by accident is still recoverable.
+#[tauri::command]
+pub fn config_reset(state: State<'_, AppState>) -> Result<AppConfig, String> {
+    let path = crate::config::config_path();
+    if path.is_file() {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let backup = path.with_file_name(format!("config.json.bak-{stamp}"));
+        std::fs::copy(&path, &backup).map_err(|e| format!("备份旧配置失败：{e}"))?;
+    }
+    // Model names discovered from the old providers would otherwise survive in
+    // the picker even though every provider is back to "no key".
+    let _ = std::fs::remove_file(crate::config::model_cache_path());
+
+    let fresh = AppConfig::default();
+    fresh.save().map_err(|e| e.to_string())?;
+    {
+        let mut cfg = crate::util::lock(&state.config);
+        *cfg = fresh.clone();
+    }
+    for s in state.skills.list() {
+        if s.enabled {
+            state.skills.set_enabled(&s.id, false);
+        }
+    }
+    Ok(fresh)
+}
+
 #[derive(Serialize)]
 pub struct AppInfo {
     /// Human-facing product label shown in every window, e.g. "Beta 0.1".

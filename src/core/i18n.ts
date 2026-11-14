@@ -506,6 +506,10 @@ const zhCN = {
   'about.releaseNotes': "更新说明",
   'about.openReleases': "前往 GitHub 发布页",
   'about.noRelease': "GitHub 上还没有发布版本",
+  'about.maintenance': "维护",
+  'about.resetProfile': "恢复默认设置",
+  'about.resetConfirm': "将清除当前全部设置（供应商、模型、主题、语言、工作区），并重新进入首次启动设置。旧配置会备份在配置目录中。继续吗？",
+  'about.resetHint': "安装后没有出现首次启动设置，或界面状态不对时，用这里恢复。",
 } satisfies Dict;
 
 /** Every locale must cover every key that exists in `zhCN`. */
@@ -1003,6 +1007,10 @@ const enUS: FullDict = {
   'about.releaseNotes': "Release notes",
   'about.openReleases': "Open releases page",
   'about.noRelease': "No releases published on GitHub yet",
+  'about.maintenance': "Maintenance",
+  'about.resetProfile': "Reset to defaults",
+  'about.resetConfirm': "This clears every setting (providers, models, theme, language, workspace) and runs the first-run setup again. The previous config is kept as a backup in the config folder. Continue?",
+  'about.resetHint': "Use this when the first-run setup never appeared after installing, or when the app opens in a broken state.",
 } satisfies FullDict;
 
 const jaJP: FullDict = {
@@ -1498,6 +1506,10 @@ const jaJP: FullDict = {
   'about.releaseNotes': "リリースノート",
   'about.openReleases': "GitHub リリースページを開く",
   'about.noRelease': "GitHub にリリースはまだありません",
+  'about.maintenance': "メンテナンス",
+  'about.resetProfile': "既定値に戻す",
+  'about.resetConfirm': "すべての設定（プロバイダー、モデル、テーマ、言語、ワークスペース）を消去し、初回セットアップをやり直します。以前の設定は設定フォルダーにバックアップされます。続行しますか？",
+  'about.resetHint': "インストール後に初回セットアップが表示されない場合や、画面の状態がおかしい場合に使います。",
 } satisfies FullDict;
 
 const koKR: FullDict = {
@@ -1993,6 +2005,10 @@ const koKR: FullDict = {
   'about.releaseNotes': "릴리스 노트",
   'about.openReleases': "GitHub 릴리스 페이지 열기",
   'about.noRelease': "GitHub에 아직 릴리스가 없습니다",
+  'about.maintenance': "유지 관리",
+  'about.resetProfile': "기본값으로 초기화",
+  'about.resetConfirm': "모든 설정(공급자, 모델, 테마, 언어, 워크스페이스)을 지우고 첫 실행 설정을 다시 시작합니다. 이전 설정은 설정 폴더에 백업됩니다. 계속할까요?",
+  'about.resetHint': "설치 후 첫 실행 설정이 나타나지 않거나 화면 상태가 이상할 때 사용하세요.",
 } satisfies FullDict;
 
 const ruRU: FullDict = {
@@ -2489,6 +2505,10 @@ const ruRU: FullDict = {
   'about.releaseNotes': "Примечания к выпуску",
   'about.openReleases': "Открыть страницу релизов",
   'about.noRelease': "На GitHub пока нет релизов",
+  'about.maintenance': "Обслуживание",
+  'about.resetProfile': "Сбросить к умолчанию",
+  'about.resetConfirm': "Все настройки (провайдеры, модели, тема, язык, рабочая папка) будут очищены и запустится первичная настройка. Прежний конфиг сохранится в папке настроек. Продолжить?",
+  'about.resetHint': "Используйте, если после установки первичная настройка не появилась или приложение открывается в странном состоянии.",
 } satisfies FullDict;
 
 const DICTS: Record<Lang, FullDict> = {

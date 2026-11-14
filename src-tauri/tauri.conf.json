@@ -62,7 +62,8 @@
       },
       "nsis": {
         "languages": ["English", "SimpChinese"],
-        "displayLanguageSelector": true
+        "displayLanguageSelector": true,
+        "installerHooks": "installer.nsh"
       }
     }
   }

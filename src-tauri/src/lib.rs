@@ -10,6 +10,7 @@ pub mod git;
 pub mod mcp;
 pub mod net;
 pub mod runner;
+pub mod single_instance;
 pub mod skills;
 pub mod state;
 pub mod terminal;
@@ -59,6 +60,12 @@ pub fn mark_main_loaded(app: &tauri::AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // A second copy would die inside `setup` with a bare WebView2 error (the
+    // user-data folder is locked by the first one) — no window, no message.
+    // Hand the launch to the running instance instead; see single_instance.rs.
+    if !single_instance::claim() {
+        return;
+    }
     BOOT_AT.get_or_init(std::time::Instant::now);
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -172,6 +179,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_config,
             commands::save_config,
+            commands::config_reset,
             commands::app_info,
             commands::app_check_update,
             commands::set_workspace,

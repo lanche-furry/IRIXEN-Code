@@ -493,4 +493,8 @@ export const esES = {
   'about.releaseNotes': "Notas de la versión",
   'about.openReleases': "Abrir página de versiones",
   'about.noRelease': "Aún no hay versiones en GitHub",
+  'about.maintenance': "Mantenimiento",
+  'about.resetProfile': "Restablecer valores",
+  'about.resetConfirm': "Se borrarán todos los ajustes (proveedores, modelos, tema, idioma, espacio de trabajo) y se abrirá de nuevo la configuración inicial. La configuración anterior se guarda como copia en la carpeta de configuración. ¿Continuar?",
+  'about.resetHint': "Úsalo si la configuración inicial no apareció tras instalar o si la app se abre en un estado extraño.",
 };
