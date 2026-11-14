@@ -1,0 +1,250 @@
+/* IRIXEN Code — design tokens & primitives.
+   Light is the default; `[data-theme="dark"]` flips the same variable set.
+   Custom themes override variables at runtime (see ui/theme.ts). */
+
+:root {
+  /* ---- light (default) ---- */
+  --bg-0: #eaedf2;
+  --bg-1: #f8f9fb;
+  --bg-2: #e7eaef;
+  --bg-3: #dbe0e8;
+  --bg-overlay: rgba(18, 24, 34, 0.36);
+  --border: #d3d9e2;
+  --border-strong: #b2bccb;
+  --text-0: #0b1018;
+  --text-1: #3c4859;
+  --text-2: #74808f;
+  --accent: #0369a1;
+  --accent-2: #4f46e5;
+  --accent-contrast: #ffffff;
+  --accent-soft: rgba(3, 105, 161, 0.1);
+  --ok: #047857;
+  --warn: #b45309;
+  --err: #dc2626;
+  /* Semantic surfaces for error/warn/ok blocks. Everything that paints a
+     failure (toast, inline error, message bubble, extension prompt) reads
+     these, so swapping the theme never leaves a light-only red behind. */
+  --ok-soft: rgba(4, 120, 87, 0.1);
+  --warn-soft: rgba(180, 83, 9, 0.11);
+  --err-soft: rgba(220, 38, 38, 0.09);
+  --err-line: rgba(220, 38, 38, 0.34);
+  --add: #e7f7ee;
+  --del: #fdecec;
+  /* Hard edges: one hairline instead of a soft drop shadow. */
+  --shadow-1: 0 0 0 1px var(--border-strong), 0 18px 42px rgba(15, 23, 36, 0.16);
+  --shadow-2: 0 0 0 1px var(--border-strong);
+  --radius: 2px;
+  --radius-sm: 1px;
+  --hair: 1px solid var(--border);
+  --hair-strong: 1px solid var(--border-strong);
+  /* Micro labels: uppercase, wide tracking, monospace figures. */
+  --lift-1: #f1f3f7;
+  /* Artwork: assets are black ink on a transparent plate. Light theme draws them
+     as-is; the dark theme flips the colour channels only — `invert()` never
+     touches alpha, so the transparent plate stays transparent instead of
+     turning into a white box. `hue-rotate(180deg)` puts the cube's blue back
+     after inversion (plain invert would turn it rust). */
+  --ink-filter: none;
+  --font-ui: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "PingFang SC",
+    "Hiragino Sans GB", system-ui, -apple-system, sans-serif;
+  --font-mono: "Cascadia Code", "JetBrains Mono", "SF Mono", Consolas, "Courier New", monospace;
+  --sidebar-w: 264px;
+  --chat-w: 400px;
+  /* Right-hand quick rail (chat / review / Web2API). */
+  --rail-w: 40px;
+  --act-w: 56px;
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --bg-0: #0a0d13;
+  --bg-1: #0f131a;
+  --bg-2: #151b24;
+  --bg-3: #1d2530;
+  --bg-overlay: rgba(4, 6, 10, 0.74);
+  --border: #222b38;
+  --border-strong: #333f4f;
+  --text-0: #eff3f9;
+  --text-1: #b0bccb;
+  --text-2: #7e8a9b;
+  --accent: #38bdf8;
+  --accent-2: #818cf8;
+  --accent-contrast: #06121b;
+  --accent-soft: rgba(56, 189, 248, 0.14);
+  --ok: #34d399;
+  --warn: #fbbf24;
+  --err: #f87171;
+  --ok-soft: rgba(52, 211, 153, 0.12);
+  --warn-soft: rgba(251, 191, 36, 0.13);
+  --err-soft: rgba(248, 113, 113, 0.12);
+  --err-line: rgba(248, 113, 113, 0.42);
+  --add: #1c3d2c;
+  --del: #46232b;
+  --shadow-1: 0 0 0 1px var(--border-strong), 0 20px 48px rgba(0, 0, 0, 0.62);
+  --shadow-2: 0 0 0 1px var(--border-strong);
+  --lift-1: #10141c;
+  --ink-filter: invert(1) hue-rotate(180deg);
+  color-scheme: dark;
+}
+
+/* A custom theme may override --err/--warn/--ok on the root element. Derive the
+   soft surfaces from whatever is actually in effect instead of leaving the
+   built-in light/dark rgba behind. Older WebView2 builds keep the literal
+   fallbacks declared above. */
+@supports (color: color-mix(in srgb, red 10%, transparent)) {
+  :root,
+  :root[data-theme='dark'] {
+    --ok-soft: color-mix(in srgb, var(--ok) 11%, transparent);
+    --warn-soft: color-mix(in srgb, var(--warn) 13%, transparent);
+    --err-soft: color-mix(in srgb, var(--err) 11%, transparent);
+    --err-line: color-mix(in srgb, var(--err) 40%, transparent);
+  }
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* The `hidden` attribute only sets `display: none` from the UA sheet, so any
+   author rule that declares a display value (`.store { display: flex }`,
+   `.ext-detail { display: flex }`, …) silently wins and the element stays
+   painted. That is not cosmetic: a hidden pane that stays in the flex flow
+   steals height and swallows clicks meant for the visible one. One global rule
+   beats remembering a `[hidden]` variant per component. */
+[hidden] { display: none !important; }
+
+/* Theme switch: fade the new palette in rather than snapping from near-white
+   to near-black in a single frame (which reads as a flashbang). ui/theme.ts
+   adds `theme-fade` only when the resolved palette actually changed, so the
+   first paint and ordinary config saves never animate. */
+@keyframes irixen-theme-fade {
+  from { opacity: 0.42; }
+  to   { opacity: 1; }
+}
+html.theme-fade { animation: irixen-theme-fade 240ms ease-out both; }
+@media (prefers-reduced-motion: reduce) {
+  html.theme-fade { animation: none; }
+}
+
+html, body, #app {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: var(--bg-0);
+  color: var(--text-0);
+  font-family: var(--font-ui);
+  font-size: 15.5px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+::selection { background: var(--accent-soft); }
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+input, textarea, select {
+  font: inherit;
+  color: var(--text-0);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 5px 8px;
+  outline: none;
+  user-select: text;
+}
+
+input:focus, textarea:focus, select:focus {
+  border-color: var(--accent);
+  /* A second hairline reads as "engaged" without the glow. */
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+textarea { resize: vertical; font-family: var(--font-mono); font-size: 14.5px; line-height: 1.6; }
+
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 0;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--text-2); background-clip: content-box; }
+::-webkit-scrollbar-corner { background: transparent; }
+
+.icon { display: inline-flex; align-items: center; justify-content: center; }
+.icon svg { display: block; }
+
+/* Black-ink artwork on a transparent plate. Reads correctly on the light
+   default and is inverted (colour only, alpha untouched) in the dark theme. */
+.ink-flip { filter: var(--ink-filter); }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-2);
+  color: var(--text-1);
+  font-size: 14.5px;
+  letter-spacing: 0.02em;
+  transition: background 120ms, color 120ms, border-color 120ms;
+  white-space: nowrap;
+}
+.btn:hover { background: var(--bg-3); color: var(--text-0); }
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 650;
+  letter-spacing: 0.04em;
+}
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.ghost { background: transparent; border-color: transparent; }
+.btn.ghost:hover { background: var(--bg-2); }
+.btn.danger { color: var(--err); border-color: transparent; }
+.btn.danger:hover { background: var(--err); color: #fff; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn.sm { padding: 2px 7px; font-size: 13.5px; letter-spacing: 0.04em; }
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  font-size: 13px;
+  letter-spacing: 0.05em;
+  background: var(--bg-3);
+  color: var(--text-1);
+}
+.chip.accent { background: var(--accent-soft); color: var(--accent); }
+
+.kbd {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  padding: 1px 5px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border-strong);
+  color: var(--text-2);
+}
+
+.mono { font-family: var(--font-mono); }
+.muted { color: var(--text-2); }
+.dim { color: var(--text-1); }
+.spacer { flex: 1; }
+.hidden { display: none !important; }
+
+
+.chip.on { background: var(--accent-soft); color: var(--accent); border-color: transparent; }

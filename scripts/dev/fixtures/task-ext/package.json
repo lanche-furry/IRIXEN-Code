@@ -1,0 +1,10 @@
+{
+  "name": "task-ext",
+  "publisher": "irixen-dev",
+  "version": "1.0.0",
+  "displayName": "Task API probe",
+  "description": "Exercises vscode.tasks and vscode.window.createTerminal against the host.",
+  "engines": { "vscode": "^1.80.0" },
+  "main": "./extension.js",
+  "activationEvents": ["*"]
+}

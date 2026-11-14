@@ -1,0 +1,54 @@
+[package]
+name = "irixen-code"
+version = "0.1.0-beta.1"
+description = "IRIXEN Code — a lightweight desktop IDE with the built-in IRIXEN Agent"
+authors = ["lanche-furry"]
+license = "Apache-2.0"
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "irixen_code_lib"
+# Desktop-only: `rlib` is all the binary needs. The template also lists
+# `staticlib`/`cdylib` for iOS/Android, but on windows-gnu a cdylib exports
+# every symbol and rust-lld refuses past 65535 of them.
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "sync", "time", "fs", "io-util", "net"] }
+futures-util = "0.3"
+async-trait = "0.1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "default-tls"] }
+ignore = "0.4"
+dirs = "5"
+anyhow = "1"
+# VSIX is a zip; flate2 is already in the tree for reqwest, so this adds no
+# new download to the lockfile.
+flate2 = "1"
+# External WebView windows need a parsed URL; already in the lockfile via reqwest.
+url = "2"
+# A real terminal is a pseudo-console, not a pipe: ConPTY on Windows, openpty on
+# Unix. `portable-pty` is the wezterm abstraction over both, so the shell gets a
+# TTY (prompt, colours, vim, ctrl-c) instead of a byte stream.
+portable-pty = "0.8"
+# PTY output is arbitrary bytes; JSON cannot carry those. Base64 keeps a
+# truncated multi-byte character intact across chunk boundaries.
+base64 = "0.22"
+# Legacy Windows tools still write the OEM code page (GBK on a Chinese
+# install). UTF-8 is the normal path; this is only the fallback that stops a
+# whole command's output from turning into `?`.
+encoding_rs = "0.8"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

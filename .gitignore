@@ -1,0 +1,14 @@
+node_modules/
+dist/
+dist-types/
+src-tauri/target/
+.tools/
+*.local
+.DS_Store
+Thumbs.db
+*.log
+.vscode/
+.idea/
+src-tauri/gen/
+.tmp/
+vite.config.ts.timestamp-*

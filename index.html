@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>IRIXEN Code</title>
+    <link rel="icon" type="image/png" href="/irixen-icon.png" />
+    <script>
+      // Paint the right canvas before the module bundle runs. The real theme
+      // lives in the config file; ui/theme.ts caches the resolved base here so
+      // the window never flashes the wrong colour.
+      try {
+        var t = window.__IRIXEN_THEME || localStorage.getItem('irixen.theme');
+        if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t;
+      } catch (e) {}
+      window.__irixenSplashStart = performance.now();
+    </script>
+    <style>
+      /* Critical-path boot styles. Duplicated tokens: the bundle has not
+         loaded yet when this paints. */
+      :root {
+        --sp-bg: #e8ebf0;
+        --sp-card: #f7f8fa;
+        --sp-line: #c9d1dd;
+        --sp-track: #d5dce6;
+        --sp-accent: #0284c7;
+        --sp-text: #17212f;
+        --sp-dim: #798596;
+        --sp-ok: #0f9d58;
+        --sp-err: #d93025;
+        /* Vector tick used as an alpha mask; the painted colour comes from
+           `background`, so one asset serves both themes. */
+        --sp-tick: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2012%2012'%3E%3Cpath%20d='M2.4%206.2L4.8%208.6L9.6%203.6'%20fill='none'%20stroke='black'%20stroke-width='1.9'%20stroke-linecap='round'%20stroke-linejoin='round'/%3E%3C/svg%3E");
+      }
+      html[data-theme="dark"] {
+        --sp-bg: #080b11;
+        --sp-card: #111722;
+        --sp-line: #2f3a4c;
+        --sp-track: #1b2431;
+        --sp-accent: #38bdf8;
+        --sp-text: #dbe3ee;
+        --sp-dim: #8b97a8;
+        --sp-ok: #34d399;
+        --sp-err: #f87171;
+      }
+      html { background: var(--sp-bg); color-scheme: light; }
+      html[data-theme="dark"] { color-scheme: dark; }
+      html, body { margin: 0; height: 100%; overflow: hidden; }
+
+      #irixen-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--sp-bg);
+        transition: opacity 170ms ease;
+      }
+      #irixen-splash.sp-out { opacity: 0; pointer-events: none; }
+
+      .sp-card {
+        box-sizing: border-box;
+        width: 460px;
+        max-width: calc(100vw - 40px);
+        padding: 44px 38px 34px;
+        background: var(--sp-card);
+        border: 1px solid var(--sp-line);
+        border-radius: 3px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 24px;
+      }
+      /* Same transparent mark the OS taskbar and the first-run wizard use.
+         It is smooth artwork, so no pixelated upscaling; unlike the wordmark
+         it must NOT be inverted on dark themes (its blue ink would turn rusty). */
+      .sp-icon { display: block; width: 60px; height: 60px; }
+      .sp-logo { display: block; width: 100%; max-width: 360px; height: auto; }
+      /* The wordmark is black on transparent; on dark themes invert the ink
+         only — the alpha stays intact, so no box appears behind the letters. */
+      html[data-theme="dark"] .sp-logo { filter: invert(1); }
+
+      /* Progress rail. The bar is the only thing that moves on its own; it
+         tracks finished steps, not time, so it never lies about progress. */
+      .sp-rule { width: 100%; height: 2px; background: var(--sp-track); overflow: hidden; }
+      .sp-bar {
+        height: 100%;
+        width: 0;
+        background: var(--sp-accent);
+        transition: width 280ms cubic-bezier(0.4, 0, 0.2, 1);
+      }
+
+      /* One line at a time. The card shows the step that is running right now;
+         a fixed min-height keeps the card from resizing as the text changes. */
+      .sp-steps {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        min-height: 24px;
+      }
+      .sp-steps {
+        font: 400 14px/1.45 "Inter", "Segoe UI", "PingFang SC", "Microsoft YaHei",
+          system-ui, sans-serif;
+        font-variant-numeric: tabular-nums;
+      }
+      .sp-step { display: flex; align-items: center; gap: 10px; color: var(--sp-dim); }
+      .sp-step[data-state="active"] { color: var(--sp-text); }
+      .sp-step[data-state="done"] { color: var(--sp-text); }
+      .sp-step[data-state="skip"] { color: var(--sp-dim); opacity: 0.75; }
+
+      .sp-dot {
+        position: relative;
+        box-sizing: border-box;
+        width: 13px;
+        height: 13px;
+        flex: 0 0 13px;
+        border: 1.5px solid var(--sp-line);
+        border-radius: 50%;
+      }
+      /* Active: a rotating arc. It lives on ::before so that switching a row
+         to `done` can never inherit a leftover compositor transform — that was
+         what made the check mark appear to jump by a pixel on release builds. */
+      .sp-step[data-state="active"] .sp-dot { border-color: var(--sp-accent); }
+      .sp-step[data-state="active"] .sp-dot::before {
+        content: "";
+        position: absolute;
+        inset: -1.5px;
+        border: 1.5px solid transparent;
+        border-top-color: var(--sp-accent);
+        border-radius: 50%;
+        animation: sp-spin 780ms linear infinite;
+      }
+      .sp-step[data-state="done"] .sp-dot {
+        border-color: var(--sp-ok);
+        background: var(--sp-ok);
+        transform: none;
+      }
+      /* The tick is a centred SVG mask: no absolute half-pixel offsets and no
+         rotation, so it lands on exactly the same spot at every DPI / zoom. */
+      .sp-step[data-state="done"] .sp-dot::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: var(--sp-card);
+        -webkit-mask: var(--sp-tick) center / 11px 11px no-repeat;
+        mask: var(--sp-tick) center / 11px 11px no-repeat;
+      }
+      .sp-step[data-state="skip"] .sp-dot::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        margin: auto;
+        width: 5px;
+        height: 1.5px;
+        background: var(--sp-line);
+      }
+      .sp-step[data-state="error"] .sp-dot {
+        border-color: var(--sp-err);
+        background: var(--sp-err);
+      }
+      @keyframes sp-spin {
+        to { transform: rotate(360deg); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .sp-step[data-state="active"] .sp-dot::before { animation: none; border-color: var(--sp-accent); }
+        .sp-bar { transition: none; }
+        #irixen-splash { transition: none; }
+      }
+
+      .sp-label { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+      .sp-detail { margin-left: auto; padding-left: 12px; font-size: 13px; color: var(--sp-dim); }
+    </style>
+  </head>
+  <body>
+    <div id="irixen-splash" role="status" aria-live="polite">
+      <div class="sp-card">
+        <img class="sp-icon" alt="" draggable="false" src="/irixen-icon.png" />
+        <img class="sp-logo" alt="IRIXEN Code" draggable="false" src="/irixen-wordmark.png" />
+        <div class="sp-rule"><div class="sp-bar" id="sp-bar"></div></div>
+        <ul class="sp-steps" id="sp-steps"></ul>
+      </div>
+    </div>
+    <script>
+      // Boot checklist. The bundle drives this through src/core/boot.ts; until
+      // then the fallback labels below are the only text available, because the
+      // i18n dictionary lives inside that same bundle.
+      window.__irixenBoot = (function () {
+        var ORDER = ['core', 'ui', 'ext', 'bridge', 'workspace'];
+        var FALLBACK = {
+          'zh-CN': ['加载程序本体', '构建界面', '加载扩展插件', '启动 Web2API 反向代理', '恢复工作区与会话'],
+          'zh-TW': ['載入程式本體', '建構介面', '載入擴充套件', '啟動 Web2API 反向代理', '還原工作區與工作階段'],
+          'en-US': ['Loading the application', 'Building the interface', 'Loading extensions', 'Starting the Web2API proxy', 'Restoring workspace and session'],
+          'ja-JP': ['アプリケーションを読み込み中', '画面を構築中', '拡張機能を読み込み中', 'Web2API プロキシを起動中', 'ワークスペースを復元中'],
+          'ko-KR': ['애플리케이션 로드 중', '인터페이스 구성 중', '확장 프로그램 로드 중', 'Web2API 프록시 시작 중', '워크스페이스 복원 중'],
+          'ru-RU': ['Загрузка приложения', 'Построение интерфейса', 'Загрузка расширений', 'Запуск прокси Web2API', 'Восстановление рабочей области'],
+          'es-ES': ['Cargando la aplicación', 'Construyendo la interfaz', 'Cargando extensiones', 'Iniciando el proxy Web2API', 'Restaurando el espacio de trabajo'],
+          'fr-FR': ["Chargement de l'application", "Construction de l'interface", 'Chargement des extensions', 'Démarrage du proxy Web2API', "Restauration de l'espace de travail"],
+        };
+
+        function pickLang() {
+          var want = '';
+          try { want = localStorage.getItem('irixen.lang') || ''; } catch (e) {}
+          if (!want) want = navigator.language || 'en-US';
+          if (FALLBACK[want]) return want;
+          var low = want.toLowerCase();
+          if (low.indexOf('zh') === 0) {
+            return /hant|tw|hk|mo/.test(low) ? 'zh-TW' : 'zh-CN';
+          }
+          var base = low.split('-')[0];
+          var hit = { ja: 'ja-JP', ko: 'ko-KR', ru: 'ru-RU', es: 'es-ES', fr: 'fr-FR', en: 'en-US' }[base];
+          return hit || 'en-US';
+        }
+
+        var rows = [];               // { id, state, detail }
+        var labels = {};             // id -> label, overridden by the bundle
+        var splash, listEl, barEl;
+        var started = performance.now();
+        var MIN_MS = 900;            // never flicker away instantly
+        var MAX_MS = 7000;           // never hold the window hostage
+        var finished = false;
+        var forceTimer = null;
+        // Which line the card is currently showing, and since when.
+        var shownId = '';
+        var shownAt = 0;
+        var holdTimer = null;
+
+        function mount() {
+          if (splash) return true;
+          splash = document.getElementById('irixen-splash');
+          if (!splash) return false;
+          listEl = document.getElementById('sp-steps');
+          barEl = document.getElementById('sp-bar');
+          return true;
+        }
+
+        function labelOf(id) {
+          if (labels[id]) return labels[id];
+          var lang = pickLang();
+          var table = FALLBACK[lang] || FALLBACK['en-US'];
+          var i = ORDER.indexOf(id);
+          return table[i < 0 ? 0 : i];
+        }
+
+        /** The row the card is talking about: whatever is running, else the last
+         *  one that settled (its check mark stays up until the next step starts). */
+        function pickRow() {
+          var active = null;
+          var settled = null;
+          for (var i = 0; i < rows.length; i++) {
+            if (rows[i].state === 'active') active = rows[i];
+            if (rows[i].state !== 'pending') settled = rows[i];
+          }
+          return active || settled || rows[0];
+        }
+
+        function paint() {
+          if (!mount()) return;
+          var row = pickRow();
+          if (!row) return;
+
+          // Steps are reported back-to-back (finish one, start the next in the
+          // same tick). Swap instantly and the check mark is never visible, so
+          // each line keeps the stage for a beat before it is replaced.
+          if (shownId && shownId !== row.id) {
+            var age = Date.now() - shownAt;
+            if (age < 160) {
+              if (!holdTimer) {
+                holdTimer = setTimeout(function () {
+                  holdTimer = null;
+                  paint();
+                }, 160 - age);
+              }
+              return;
+            }
+          }
+          shownId = row.id;
+          shownAt = Date.now();
+          render(row);
+        }
+
+        function render(row) {
+          var li = listEl.firstElementChild;
+          if (!li) {
+            li = document.createElement('li');
+            li.className = 'sp-step';
+            var dot = document.createElement('span');
+            dot.className = 'sp-dot';
+            var label = document.createElement('span');
+            label.className = 'sp-label';
+            var detail = document.createElement('span');
+            detail.className = 'sp-detail';
+            li.appendChild(dot);
+            li.appendChild(label);
+            li.appendChild(detail);
+            listEl.appendChild(li);
+          }
+          // Same element across steps, so the spinner never restarts mid-turn.
+          li.dataset.state = row.state;
+          var lab = li.querySelector('.sp-label');
+          var det = li.querySelector('.sp-detail');
+          var text = row.label || labelOf(row.id);
+          if (lab.textContent !== text) lab.textContent = text;
+          if (det.textContent !== (row.detail || '')) det.textContent = row.detail || '';
+          li.setAttribute('aria-label', text + (row.detail ? ' — ' + row.detail : ''));
+
+          // Progress counts settled steps only: pending and active are not done.
+          var settled = 0;
+          for (var j = 0; j < rows.length; j++) {
+            if (rows[j].state === 'done' || rows[j].state === 'skip' || rows[j].state === 'error') settled++;
+          }
+          if (barEl) barEl.style.width = (rows.length ? (settled / rows.length) * 100 : 0) + '%';
+        }
+
+        function remove() {
+          if (!mount()) return;
+          splash.classList.add('sp-out');
+          setTimeout(function () {
+            if (splash && splash.parentNode) splash.parentNode.removeChild(splash);
+            splash = null;
+          }, 190);
+        }
+
+        function finish() {
+          if (finished) return;
+          finished = true;
+          if (forceTimer) clearTimeout(forceTimer);
+          for (var i = 0; i < rows.length; i++) {
+            var s = rows[i].state;
+            if (s === 'active' || s === 'pending') rows[i].state = 'skip';
+          }
+          paint();
+          var wait = Math.max(0, MIN_MS - (performance.now() - started));
+          setTimeout(remove, wait);
+        }
+
+        function ensureRows() {
+          if (rows.length) return;
+          for (var i = 0; i < ORDER.length; i++) rows.push({ id: ORDER[i], state: 'pending' });
+          rows[0].state = 'active';
+        }
+
+        var api = {
+          /** Replace every label at once (the bundle has the real dictionary). */
+          init: function (items) {
+            ensureRows();
+            if (items) {
+              for (var i = 0; i < items.length; i++) {
+                var it = items[i];
+                if (!it || !it.id) continue;
+                labels[it.id] = it.label;
+                var row = null;
+                for (var k = 0; k < rows.length; k++) if (rows[k].id === it.id) row = rows[k];
+                if (!row) {
+                  row = { id: it.id, state: 'pending' };
+                  rows.push(row);
+                }
+              }
+            }
+            paint();
+            if (!forceTimer) forceTimer = setTimeout(finish, MAX_MS);
+          },
+          /** Keep this for the language switch: labels change, states do not. */
+          relabel: function (items) {
+            api.init(items);
+          },
+          step: function (id, state, detail) {
+            ensureRows();
+            var row = null;
+            for (var k = 0; k < rows.length; k++) if (rows[k].id === id) row = rows[k];
+            if (!row) {
+              row = { id: id, state: 'pending' };
+              rows.push(row);
+            }
+            row.state = state;
+            if (detail !== undefined) row.detail = detail;
+            paint();
+          },
+          finish: finish,
+          /** Legacy entry point still used by the plain-browser dev path. */
+          done: finish,
+        };
+
+        // Draw the five rows with the fallback labels *now*: the bundle needs a
+        // few hundred milliseconds to parse, and a card that is an empty bar
+        // for that long reads as a frozen app. init() only swaps the text.
+        ensureRows();
+        paint();
+        try {
+          document.documentElement.lang = pickLang();
+        } catch (e) {}
+
+        return api;
+      })();
+
+      // Kept for anything that still calls the old name.
+      window.__irixenSplashDone = function () {
+        if (window.__irixenBoot) window.__irixenBoot.finish();
+      };
+
+      // If the bundle never gets far enough to call `init` (a crash, a Vite
+      // cold start that outlives the progress), the card must still go away —
+      // a frozen splash is worse than no splash.
+      setTimeout(function () {
+        if (window.__irixenBoot) window.__irixenBoot.finish();
+      }, 9000);
+    </script>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
