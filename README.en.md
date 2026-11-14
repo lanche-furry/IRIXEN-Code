@@ -80,7 +80,7 @@ This is not "simulating" VS Code extensions: declarative parts plug straight int
 
 The **Node extension host** runs real extensions: `vscode.commands` (register + execute + cross-extension forwarding), `window.showInformationMessage / showQuickPick / showInputBox` (real dialogs, Promise really awaits), `createStatusBarItem` (really appears in the bottom status bar, clickable), `createOutputChannel` (streams into the extension card's output panel), `workspace.fs` (read/write / list / create / delete / rename), `workspace.rootPath` and `workspaceFolders`, `window.activeTextEditor` (document content, selection, `edit()` add/remove/change hit the real editor), `context.globalState / workspaceState` (persisted to the extension's `.state/`), `env.openExternal`, and base types like `Uri / Position / Range / Selection / EventEmitter / Disposable`.
 
-When Node is missing, the panel prompts and offers a **one-click portable download** (~30 MB, only `node.exe` is extracted to `<config>/runtime/node/`), or you can point it at an existing `node`. Each extension's host can be started/stopped independently; logs and commands live in the extension card.
+When Node is missing, the panel prompts and offers a **one-click Node runtime download** (~30 MB, only `node.exe` is extracted to `<config>/runtime/node/`), or you can point it at an existing `node`. Each extension's host can be started/stopped independently; logs and commands live in the extension card.
 
 The **extension store** is built in — no browser needed: a search box + categories (Themes / Languages / Snippets / Formatters / Linters / Other) + sorting (downloads / rating / update time). Open an item to see its README, rating, license, all versions (install a specific one), and repo link. Data comes from **Open VSX** — the open-source mirror of the VS Code Marketplace.
 
@@ -106,10 +106,9 @@ DSH-style repos (skill packs with a `SKILL.md`) are recognized as type `dsh` and
 
 ## Installation
 
-Two release assets are published; the installer is the recommended path:
+One release asset is published: the Windows installer.
 
 - **Windows installer (recommended)**: on [Releases](https://github.com/lanche-furry/IRIXEN-Code/releases) download `IRIXEN Code_*_x64-setup.exe` and run it. It creates Start Menu / desktop shortcuts and bootstraps the WebView2 Runtime (Win10 needs internet; Win11 has it built in). The installer has a built-in **English / Simplified Chinese** language-selection screen.
-- **Portable**: `irixen-code.exe` runs without installation.
 
 > WebView2 Runtime is required: Win11 has it built in; Win10 gets it via the installer over the internet.
 
@@ -125,7 +124,7 @@ npm run app:build    # build the NSIS installer
 After first launch: go to `Settings → Providers`, enter the Base URL and API Key, click **Test connection**, and the model list appears automatically; then pick a model and a thinking-effort level above the chat box.
 
 > Build environment: Rust 1.77+ (GNU target), Node 18+, WebView2 on Windows 10/11.
-> This repo uses a **portable toolchain**: Rust and build tools all live under `.tools/` — see [docs/BUILD.md](docs/BUILD.md).
+> This repo uses a **bundled toolchain**: Rust and build tools all live under `.tools/` — see [docs/BUILD.md](docs/BUILD.md).
 
 ## Project Layout
 
@@ -146,7 +145,7 @@ src-tauri/             Rust backend
   src/skills/builtin/  5 built-in SKILL.md
 public/assets/         Wordmark and other static assets
 assets/icon.png        App icon master (1254×1254 transparent PNG; `npm run icons` generates the full size set)
-scripts/               Icon generation / portable toolchain launcher
+scripts/               Icon generation / toolchain launcher
 docs/                  Architecture, build, skill development
 ```
 

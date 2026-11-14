@@ -80,7 +80,7 @@ IRIXEN Code 由两部分组成：
 
 **Node 扩展宿主**跑的是真扩展：`vscode.commands`（注册 + 执行 + 跨扩展转发）、`window.showInformationMessage / showQuickPick / showInputBox`（真弹窗，Promise 真的 await）、`createStatusBarItem`（底部状态栏真出现，可点）、`createOutputChannel`（进扩展卡片的输出面板）、`workspace.fs`（读写 / 列目录 / 新建 / 删除 / 重命名）、`workspace.rootPath` 与 `workspaceFolders`、`window.activeTextEditor`（文档内容、选区、`edit()` 增删改会打到真的编辑器）、`context.globalState / workspaceState`（落盘到扩展目录的 `.state/`）、`env.openExternal`、`Uri / Position / Range / Selection / EventEmitter / Disposable` 等基础类型。
 
-没有 Node 时会提示并**一键下载便携版**（约 30 MB，只解出 `node.exe` 存到 `<config>/runtime/node/`），也可以手动指定已有的 `node`。每个扩展的宿主可以单独启停，日志与命令都在扩展卡片里。
+没有 Node 时会提示并**一键下载 Node 运行时**（约 30 MB，只解出 `node.exe` 存到 `<config>/runtime/node/`），也可以手动指定已有的 `node`。每个扩展的宿主可以单独启停，日志与命令都在扩展卡片里。
 
 **插件商店**是内置的，不需要开浏览器：搜索框 + 分类（主题 / 语言 / 片段 / 格式化 / 检查 / 其他）+ 排序（下载量 / 评分 / 更新时间），点开即见 README、评分、许可证、全部版本（可装指定版本）、仓库链接。数据来自 **Open VSX**——VS Code Marketplace 的开源镜像。
 
@@ -106,10 +106,9 @@ DSH 风格的仓库（带 `SKILL.md` 的技能包）会被识别为 `dsh` 类型
 
 ## 安装
 
-有两个发布资产，安装程序为推荐方式：
+发布资产为 Windows 安装程序：
 
 - **Windows 安装程序（推荐）**：在 [Releases](https://github.com/lanche-furry/IRIXEN-Code/releases) 下载 `IRIXEN Code_*_x64-setup.exe`，双击运行即可安装，会在开始菜单与桌面创建快捷方式，并自动补齐 WebView2 Runtime（Win10 需联网；Win11 自带）。安装程序内置 **English / 简体中文** 语言选择界面。
-- **便携版（Portable）**：`irixen-code.exe` 可直接运行，无需安装。
 
 > 需要 WebView2 Runtime：Win11 自带；Win10 由安装程序联网补齐。
 
@@ -125,7 +124,7 @@ npm run app:build    # 出 NSIS 安装包
 首次启动后：`设置 → 供应商`，填入 Base URL 与 API Key，点**测试连接**，模型列表会自动出现；然后在对话框上方选模型与思考强度。
 
 > 构建环境：Rust 1.77+（GNU target）、Node 18+、Windows 10/11 自带 WebView2。
-> 本仓库采用**便携工具链**方案，Rust 与构建工具全部位于 `.tools/`，详见 [docs/BUILD.md](docs/BUILD.md)。
+> 本仓库采用**自带工具链**方案，Rust 与构建工具全部位于 `.tools/`，详见 [docs/BUILD.md](docs/BUILD.md)。
 
 ## 目录结构
 
@@ -146,7 +145,7 @@ src-tauri/              Rust 后端
   src/skills/builtin/   5 个内置 SKILL.md
 public/assets/         字标等静态资源
 assets/icon.png        应用图标母版（1254×1254 透明 PNG，`npm run icons` 生成全套尺寸）
-scripts/                图标生成 / 便携工具链启动器
+scripts/                图标生成 / 工具链启动器
 docs/                   架构、构建、技能开发
 ```
 
