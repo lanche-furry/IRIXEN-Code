@@ -1,14 +1,14 @@
 name: Nightly build
 
-# One installer a day, built from the head of `main` and published as the
-# rolling `nightly` pre-release. It is a build artifact, not a version: the
-# in-app updater only considers versioned tags (see src-tauri/src/update.rs),
-# so a nightly never pops an "update available" prompt.
+# One installer a day per platform, built from the head of `main` and published
+# as the rolling `nightly` pre-release. Nightlies are build artifacts, not
+# versions: the in-app updater only considers versioned tags (see
+# src-tauri/src/update.rs), so a nightly never pops an "update available" prompt.
 #
-# CI deliberately does NOT go through scripts/build.mjs. That wrapper expects
-# the portable toolchain in .tools/ (git-ignored) and pins windows-gnu with
-# rust-lld; a Windows runner already ships the MSVC toolchain, and Tauri treats
-# that as the native target.
+# CI deliberately does NOT go through scripts/build.mjs. That wrapper expects the
+# portable toolchain in .tools/ (git-ignored) and pins windows-gnu with rust-lld.
+# Runners already provide a native toolchain (MSVC on Windows, GNU on Linux),
+# which is what Tauri targets by default.
 
 on:
   schedule:
@@ -24,7 +24,7 @@ permissions:
   contents: write
 
 jobs:
-  windows-installer:
+  windows:
     # Schedules fire on the default branch of the origin repo only; this also
     # keeps forks from publishing releases into their own repo by accident.
     if: github.repository == 'lanche-furry/IRIXEN-Code'
@@ -69,29 +69,118 @@ jobs:
           echo "DATE=$date" >> "$GITHUB_ENV"
           src=$(find src-tauri/target/release/bundle/nsis -name '*-setup.exe' | head -n1)
           test -n "$src" || { echo "no installer produced"; exit 1; }
-          cp "$src" "IRIXEN Code_nightly-${date}_x64-setup.exe"
-          ls -l ./*.exe
+          mkdir -p out
+          cp "$src" "out/IRIXEN Code_nightly-${date}_x64-setup.exe"
 
-      - name: Upload workflow artifact
+      - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: irixen-nightly-${{ env.DATE }}
-          path: IRIXEN Code_nightly-*.exe
+          name: irixen-nightly-windows
+          path: out/*
           retention-days: 14
 
-      - name: Publish rolling nightly release
+  linux:
+    if: github.repository == 'lanche-furry/IRIXEN-Code'
+    # 22.04 is the compromise: its glibc (2.35) still runs on most current
+    # distributions, and it packages webkit2gtk-4.1 that Tauri v2 links against.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+
+    env:
+      CARGO_TERM_COLOR: always
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Install system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            libssl-dev \
+            patchelf \
+            file
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+
+      # tauri.conf.json pins `bundle.targets` to nsis (the Windows product), so
+      # the Linux bundles have to be requested explicitly.
+      - name: Build deb and AppImage
+        run: npx tauri build --bundles deb,appimage
+
+      - name: Collect bundles
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          date=$(date -u +%Y%m%d)
+          mkdir -p out
+          appimage=$(find src-tauri/target/release/bundle/appimage -name '*.AppImage' | head -n1)
+          deb=$(find src-tauri/target/release/bundle/deb -name '*.deb' | head -n1)
+          test -n "$appimage" && cp "$appimage" "out/IRIXEN_Code_nightly-${date}_amd64.AppImage"
+          test -n "$deb" && cp "$deb" "out/IRIXEN_Code_nightly-${date}_amd64.deb"
+          ls -l out
+
+      - name: Upload bundles
+        uses: actions/upload-artifact@v4
+        with:
+          name: irixen-nightly-linux
+          path: out/*
+          retention-days: 14
+
+  publish:
+    needs: [windows, linux]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 20
+
+      - name: Collect artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Build release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          date=$(date -u +%Y%m%d)
+          echo "DATE=$date" >> "$GITHUB_ENV"
           {
             echo "自动每日构建，来自 \`main\` 的最新提交。"
             echo
             echo "- 提交：\`$(git rev-parse --short HEAD)\`"
             echo "- 构建时间：$(date -u '+%Y-%m-%d %H:%M UTC')"
             echo "- 版本基线：$(node -p "require('./package.json').version")"
-            echo "- 安装包：\`IRIXEN Code_nightly-${DATE}_x64-setup.exe\`"
+            echo
+            echo "| 平台 | 安装包 |"
+            echo "| --- | --- |"
+            echo "| Windows x64 | \`IRIXEN Code_nightly-${date}_x64-setup.exe\` |"
+            echo "| Linux x64 | \`IRIXEN_Code_nightly-${date}_amd64.AppImage\` / \`.deb\` |"
             echo
             echo "每日构建可能不稳定，正式版本请看 Beta 发布。"
             echo
@@ -101,11 +190,17 @@ jobs:
             git log --oneline -10
             echo '```'
           } > nightly-notes.md
+          ls -l dist
 
+      - name: Publish rolling nightly release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
           # Recreate instead of patching: nightlies are disposable, and a fresh
-          # release keeps exactly one asset per day.
+          # release keeps exactly one asset per platform per day.
           gh release delete nightly --yes --cleanup-tag || true
-          gh release create nightly "IRIXEN Code_nightly-${DATE}_x64-setup.exe" \
+          gh release create nightly dist/* \
             --title "Nightly ${DATE}" \
             --notes-file nightly-notes.md \
             --prerelease \
