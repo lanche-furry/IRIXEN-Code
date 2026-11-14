@@ -70,6 +70,28 @@ rustup default stable-x86_64-pc-msvc
 npx tauri build
 ```
 
+## Linux 构建
+
+Windows 之外只有一条受支持的路径，且 Linux 的包必须显式点名——`tauri.conf.json` 的 `bundle.targets` 写的是 `["nsis"]`：
+
+```bash
+npx tauri build --bundles deb,appimage
+```
+
+依赖（Ubuntu/Debian）：
+
+```bash
+sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
+  libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev patchelf
+```
+
+产物在 `src-tauri/target/release/bundle/{deb,appimage}/`。两个坑：
+
+- **AppImage 不自带 WebKit。** 它只打非系统库，宿主仍要装 `libwebkit2gtk-4.1-0`；CI 用 `ubuntu-22.04` 构建（glibc 2.35），22.04 及以上可直接运行。
+- **deb 的 `Depends` 必须补 `libssl3`。** `reqwest` 走 native-tls，二进制直接链了 `libssl.so.3` / `libcrypto.so.3`；漏声明在精简系统上会装完启动即失败，且没有任何提示。注意 Tauri 是把自己的默认项（`libwebkit2gtk-4.1-0`、`libgtk-3-0`）**追加**在你写的数组后面，不是替换，所以 `bundle.linux.deb.depends` 里只写 `["libssl3"]` 这一项增量即可，写全反而会重复。
+
+每日构建见 `.github/workflows/nightly.yml`：Windows 与 Linux 各自出包，最后一个 publish 任务统一发布到滚动 `nightly` 预发布，避免两个平台争抢同一个 tag。
+
 ## 图标
 
 ```bash
