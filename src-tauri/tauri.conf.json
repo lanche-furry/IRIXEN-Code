@@ -56,6 +56,15 @@
       "icons/icon.ico",
       "icons/icon.icns"
     ],
+    "linux": {
+      "deb": {
+        "depends": [
+          "libwebkit2gtk-4.1-0",
+          "libgtk-3-0",
+          "libssl3"
+        ]
+      }
+    },
     "windows": {
       "webviewInstallMode": {
         "type": "downloadBootstrapper"
