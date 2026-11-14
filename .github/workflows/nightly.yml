@@ -12,8 +12,8 @@ name: Nightly build
 
 on:
   schedule:
-    # 19:00 UTC = 03:00 Asia/Shanghai, every day.
-    - cron: "0 19 * * *"
+    # 12:00 UTC = 20:00 Asia/Shanghai, every day.
+    - cron: "0 12 * * *"
   workflow_dispatch:
 
 concurrency:
