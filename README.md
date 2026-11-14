@@ -14,7 +14,33 @@
   <img alt="Size" src="https://img.shields.io/badge/installer-small-brightgreen" />
 </p>
 
----
+<!-- ===================== LANGUAGE TOGGLE ===================== -->
+<!-- Works in any Markdown viewer that allows raw HTML + <style> (VS Code preview,
+     Typora, Obsidian, exported HTML). On GitHub the <style> is sanitized, so both
+     language blocks are shown stacked — content is identical either way. -->
+<input type="radio" name="irixen-lang" id="irixen-lang-zh" class="irixen-lang-radio" checked>
+<input type="radio" name="irixen-lang" id="irixen-lang-en" class="irixen-lang-radio">
+
+<p align="center" class="irixen-langswitch">
+  <label for="irixen-lang-en" class="irixen-lang-en-opt">English</label>
+  <span class="irixen-lang-sep">|</span>
+  <label for="irixen-lang-zh" class="irixen-lang-zh-opt">中文</label>
+</p>
+
+<style>
+.irixen-lang-radio { position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none; }
+.irixen-langswitch { font: 600 14px/1 -apple-system, "Segoe UI", system-ui, sans-serif; margin: 4px 0 12px; user-select: none; }
+.irixen-langswitch label { cursor: pointer; padding: 4px 10px; border-radius: 6px; color: #6b7280; }
+.irixen-lang-sep { color: #c0c4cc; padding: 0 2px; }
+.irixen-lang-zh, .irixen-lang-en { display: none; }
+#irixen-lang-zh:checked ~ .irixen-lang-zh { display: block; }
+#irixen-lang-en:checked ~ .irixen-lang-en { display: block; }
+#irixen-lang-zh:checked ~ .irixen-langswitch .irixen-lang-zh-opt { background: #eef2ff; color: #2f54eb; }
+#irixen-lang-en:checked ~ .irixen-langswitch .irixen-lang-en-opt { background: #eef2ff; color: #2f54eb; }
+</style>
+
+<!-- ===================== 中文 ===================== -->
+<div class="irixen-lang-zh">
 
 IRIXEN Code 由两部分组成：
 
@@ -113,13 +139,21 @@ DSH 风格的仓库（带 `SKILL.md` 的技能包）会被识别为 `dsh` 类型
 
 用法：面板里点各网页源的 **打开官网** 登录（或切「直连模板」填会话凭证）→ **保存并应用** → **启动** → 客户端把 OpenAI `base_url` 指向 `http://127.0.0.1:8791/v1`（Anthropic SDK 填 `http://127.0.0.1:8791`），模型名按路由表填即可。`/v1/models` 免鉴权，`/v1/chat/completions` 与 `/v1/messages` 需要面板里的本地密钥。
 
-
 **技能（Skills）**
 
 - `SKILL.md` + frontmatter（`name` / `description` / `when`），`when` 命中用户输入即自动注入系统提示词
 - 5 个自研内置技能，全部是"省 token、少绕路"取向：`token-saver` `diff-surgeon` `repo-scout` `commit-craft` `code-reviewer`
 - 交互式安装：本地目录、`SKILL.md` 的 http(s) 链接、Git 仓库
 - 只注入"匹配到的技能"，不把全部技能塞进上下文——这本身就是省 token 的设计
+
+## 安装
+
+有两个发布资产，安装程序为推荐方式：
+
+- **Windows 安装程序（推荐）**：在 [Releases](https://github.com/lanche-furry/IRIXEN-Code/releases) 下载 `IRIXEN Code_*_x64-setup.exe`，双击运行即可安装，会在开始菜单与桌面创建快捷方式，并自动补齐 WebView2 Runtime（Win10 需联网；Win11 自带）。安装程序内置 **English / 简体中文** 语言选择界面。
+- **便携版（Portable）**：`irixen-code.exe` 可直接运行，无需安装。
+
+> 需要 WebView2 Runtime：Win11 自带；Win10 由安装程序联网补齐。
 
 ## 快速开始
 
@@ -170,56 +204,171 @@ docs/                   架构、构建、技能开发
 
 [Apache License 2.0](LICENSE) © lanche-furry
 
----
+</div>
 
-## English
+<!-- ===================== English ===================== -->
+<div class="irixen-lang-en">
 
-**IRIXEN Code** is a small desktop IDE with a native code agent written in Rust.
-A Tauri 2 + WebView2 shell, a dependency-free TypeScript frontend, and a
-provider layer that speaks OpenAI, Anthropic and Gemini behind one trait.
+IRIXEN Code has three parts:
 
-Highlights: automatic model discovery, an adjustable thinking-effort knob
-(`reasoning_effort` / `budget_tokens` / `thinkingBudget`, with a best-effort
-retry when a vendor rejects it), seven path-sandboxed native tools, an MCP stdio
-client, installable `SKILL.md` skills, and a three-stage context compressor
-(tool-result elision → sliding
-window with task anchors → LLM digest) whose only goal is *good output for fewer
-tokens*.
+| Component | Description |
+| --- | --- |
+| **IRIXEN Agent** | The Rust agent core: one abstraction over three protocols, native tools, an MCP client, a skill system, and a three-stage context compressor |
+| **IRIXEN Code** | The desktop shell: Tauri 2 + the system WebView2, a borderless window with no splash (visible the moment it is created), a left nav rail + a center conversation area + a right quick bar; opening a file **overlays** the editor on the conversation instead of opening a third column |
+| **Web2API** | A built-in bridge that wraps browser-based AI (Claude / ChatGPT / Gemini Web, driven through the vendor's own browser session) as standard OpenAI / Anthropic compatible endpoints, so off-the-shelf clients like the `OpenAI SDK` or Cursor can connect directly |
 
-The shell is deliberately **not** a VS Code clone: one sidebar, one conversation,
-and files open *over* the conversation instead of squeezing it into a third
-column. A review panel diffs the whole workspace and hands it to the agent in one
-click.
+Design goal: **high-quality output, low token cost, no loss of intelligence**. Every trade-off serves those three principles.
 
-**Web2API** ships inside the app: it reverse-proxies browser-based AI
-(Claude Web, ChatGPT Web, Gemini Web) behind standard OpenAI
-(`/v1/chat/completions`) and Anthropic (`/v1/messages`) endpoints with SSE
-streaming. The client's model name is routed to a web source through an
-editable prefix table; each source owns its session credential and an editable
-set of endpoint/auth/body/parsing templates, so a private API change does not
-require a rebuild. API keys configured under Providers are for the agent, not
-for this bridge — the provider mode is a debug-only toggle. Model aliases let
-Cursor or the OpenAI SDK connect without any code change.
+## Features
 
-**Extensions.** VS Code and DSH packages install from four sources — a
-`publisher.name` id (resolved through Open VSX), a local `.vsix`, a direct
-`.vsix` URL, or a Git repo — or you can just browse the built-in **store**
-(search, categories, sorting, README, version picker) without opening a browser.
+**Multi-vendor API**
 
-There is a real **Node extension host**: one `node` child process per
-extension, a `vscode` module shim in front of it, and NDJSON RPC into the Rust
-core. Commands run, `showInformationMessage` / `showQuickPick` / `showInputBox`
-block on actual dialogs, status-bar items appear in the real status bar, output
-channels stream into the extension card, `workspace.fs` and `globalState` are
-persisted, and `activeTextEditor.edit()` edits the document you are looking at.
-Themes/snippets/languages/skills are still applied declaratively, and language
-*providers* (completion, hover, diagnostics) are registered but not yet driven.
-If `node` is missing the panel offers a one-click portable download.
-The UI is available in 8 locales, and a missing translation is a compile error
-rather than a silent fallback.
+- One `LlmProvider` trait covers three protocols: OpenAI `chat/completions`, Anthropic `messages`, Gemini `streamGenerateContent`
+- Built-in presets for OpenAI / Anthropic / Gemini / DeepSeek / Moonshot (Kimi) / Zhipu GLM / Qwen / SiliconFlow / OpenRouter; add any vendor easily
+- **Automatic model discovery** (`/models`, `/v1/models`, Anthropic's paginated endpoint), with results cached on disk for 10 minutes
+- **Adjustable thinking effort**: a 3-step knob above the input box (auto / off / low / medium / high) maps to `reasoning_effort` (OpenAI-compatible, incl. DeepSeek), `thinking.budget_tokens` (Claude), and `thinkingConfig.thinkingBudget` (Gemini); if a vendor rejects the field it is stripped and retried once, so a turn never gets stuck. The default level is saved to config and reused for new sessions
+- `extra_body` / `extra_headers` handle per-vendor quirks (such as Qwen's `enable_thinking`)
+
+**Agent capabilities**
+
+- Seven native tools: `read_file` `write_file` `replace_in_file` `list_dir` `search_files` `run_command` `git`
+- **Hard path sandbox**: no file tool can escape the workspace (`resolve()` validates uniformly)
+- Per-tool turn caps, stop-at-any-time, and per-event streaming (text / thinking / tool call / usage)
+- **MCP client**: JSON-RPC over stdio, handshake `2024-11-05`; MCP tools are scheduled in the same pool as native tools, and on Windows `npx` / `uvx` shims are wrapped in a shell automatically
+
+**Three-stage context compression** (the key to saving tokens)
+
+1. **Tool-result elision** — historical tool output above a threshold is collapsed into a one-line summary (paths and conclusions preserved)
+2. **Sliding window + task anchors** — keep the most recent K messages; older ones are merged into anchors (goal / decision / file)
+3. **LLM structured digest** — when still over budget, the model produces a `Goal / Decisions / Files / State / Pending` summary; on failure it falls back to a heuristic summary. The digest phase takes **no lock** and never blocks the UI
+
+**IDE shell**
+
+The layout is deliberately **not** the VS Code "three permanent columns": a **left nav rail + a center conversation area**, with code files **overlaid** on the conversation. Close the tab and you are back to the conversation — the visual focus is always singular.
+
+- Borderless window, custom-drawn title bar and window buttons (no agent badge; the title bar keeps only the workspace and window controls)
+- **Left nav column** (fixed 56px, icon + short label, fixed position and order): Files / Search / Git / Skills / Stats / Review. Beside it is the content column for the current view, with the view name and its tool buttons on top; the explorer has three quick buttons — **New File / New Folder / Collapse All** (also in the right-click menu)
+- **Right 40px quick bar**: Chat, Web2API, Extensions (badge = number of running hosts), Files (only when a tab is open), Terminal, Settings
+- **The conversation area is an overlayable canvas**: open a file → the editor plus its tab bar `inset: 0` covers the conversation; a pinned "back to conversation" button on the right of the tab bar stays put and never scrolls away
+- Startup: **no splash window, no intro animation**. The window is created with `visible: true` (background = theme `--bg-0`), so it is visible as soon as the process starts and the first UI frame lands directly on it; `main_loaded` only reclaims focus and records mount time
+- CodeMirror 6 editor: multi-tab, syntax highlighting, dirty markers, `Ctrl+S` save, jump to line from search results
+- Lazy file tree, full-workspace search (respects `ignore` rules), Git panel (stage / commit / push / pull / branch / diff)
+- **Review panel**: scan all workspace changes at a glance (`git status` + diff stats), then hand "what changed and is it risky" plus the current diff to the agent in one click. Line-level diffs are colored red/green and linked with the status bar and quick-bar badges
+- Workspace stats (file count / code lines / size / per-extension distribution / largest file) and API usage (calls, input/output, reasoning, cache hits, grouped by model and session)
+- Themes: Dark / Light / **Custom** (override any CSS variable; `--accent-soft` and the contrast color are derived automatically)
+- Languages: Simplified Chinese / Traditional Chinese / English / Japanese / Korean / Russian / Spanish / French (8 locales, ~280 keys; the key set is locked by a TS type, so a missing translation is a **compile error**, not a runtime fallback; switching is instant and needs no restart)
+
+**Extensions (VSC / DSH compatible, with a Node extension host + a built-in store)**
+
+This is not "simulating" VS Code extensions: declarative parts plug straight into the IDE, and parts that need code really run inside a `node` child process.
+
+| Contribution point | Status | Description |
+| --- | --- | --- |
+| `contributes.themes` | ✅ | Maps VS Code theme JSON color keys to this project's CSS variables (`editor.background` → `--bg-0`, etc.); preview on select |
+| `contributes.snippets` | ✅ | Parses snippet JSON into CodeMirror 6 autocompletion (`${1:label}` / `${1\|a,b\|}` placeholders expand) |
+| `contributes.languages` | ✅ | Extension → language id, which decides highlighting and snippet scope |
+| `contributes.commands` + `extension.js` | ✅ | One Node child process per extension, injected with a `vscode` API shim; commands enter the command palette (`Ctrl+Shift+P`) and the extension card, and run |
+| Language feature providers (completion / hover / diagnostics) | ⏳ registered, not yet driven | The shim has `languages.register*Provider`, but the editor's requests are not wired through yet |
+
+The **Node extension host** runs real extensions: `vscode.commands` (register + execute + cross-extension forwarding), `window.showInformationMessage / showQuickPick / showInputBox` (real dialogs, Promise really awaits), `createStatusBarItem` (really appears in the bottom status bar, clickable), `createOutputChannel` (streams into the extension card's output panel), `workspace.fs` (read/write / list / create / delete / rename), `workspace.rootPath` and `workspaceFolders`, `window.activeTextEditor` (document content, selection, `edit()` add/remove/change hit the real editor), `context.globalState / workspaceState` (persisted to the extension's `.state/`), `env.openExternal`, and base types like `Uri / Position / Range / Selection / EventEmitter / Disposable`.
+
+When Node is missing, the panel prompts and offers a **one-click portable download** (~30 MB, only `node.exe` is extracted to `<config>/runtime/node/`), or you can point it at an existing `node`. Each extension's host can be started/stopped independently; logs and commands live in the extension card.
+
+The **extension store** is built in — no browser needed: a search box + categories (Themes / Languages / Snippets / Formatters / Linters / Other) + sorting (downloads / rating / update time). Open an item to see its README, rating, license, all versions (install a specific one), and repo link. Data comes from **Open VSX** — the open-source mirror of the VS Code Marketplace.
+
+Four install sources, all pasted into one input box in the extensions panel:
+
+- **Online**: `publisher.name` (e.g. `sdras.night-owl`) → resolved through **Open VSX** (the open-source mirror of the VS Code Marketplace) and downloaded as a `.vsix`
+- **Local**: pick a `.vsix` file
+- **Direct link**: any `https://…/x.vsix`
+- **Git**: `github:owner/repo`, `owner/repo`, `git@…`
+
+A `.vsix` is just a ZIP, so there is a built-in ZIP reader (central directory + `flate2` inflate) with no external unzip dependency; on unpack it strips the `extension/` prefix, rejects absolute paths and `..`, and caps file count (20k) and total size (512 MB).
+
+DSH-style repos (skill packs with a `SKILL.md`) are recognized as type `dsh` and, on install, automatically find `SKILL.md` recursively and import it into the skill system — extensions work immediately, no second step.
+
+> Why GitHub repos go through `codeload.github.com/{owner}/{repo}/zip/HEAD` instead of `git clone`: on Windows `git` uses its own OpenSSL CA bundle and reports `certificate signer not trusted` in environments that do TLS interception, while the app's in-process `reqwest` uses system schannel and the same network works. Non-GitHub repos fall back to `git clone` (with `-c http.sslBackend=schannel`).
+
+**Web2API bridge (browser-side reverse proxy)**
+
+It turns "the AI inside a web page" into "one endpoint" with zero client changes. Note: this proxies **browser-based AI**, not the API providers configured in the app — the DeepSeek etc. keys under `Settings → Providers` are for the agent; the provider mode is only a debug-only toggle for the bridge itself.
+
+- By default routes by **model name**: `claude*` → Claude Web, `gpt-*` / `o1` / `o3` → ChatGPT Web, `gemini*` → Gemini Web; the routing table is editable in the panel, with an unmatched default web source
+- Each web source has two request modes: `vendor site + browser session` (default — drives the vendor's own input box inside a persistent WebView opened by `websession.rs`, then reads the page's answer; cookie / UA / origin / PoW / sentinel tokens all come from the page, no credential copying) and `direct template` (legacy — fill a sessionKey by hand, then `reqwest` connects directly). "Open vendor site" on the panel is for login; closing the window only hides it, not destroys it, so the login state persists; "Test connection" really sends a minimal request and lists each source's HTTP status
+- Each web source stores its web models, site URL, and endpoint independently. Endpoint, auth header, request body, text-field path, event filter, and whether to accumulate full text are all editable under "Advanced" — **a private API change needs no rebuild**
+- Measured: hitting the private endpoints directly without a browser session returns `403` (claude.ai), `401` (chatgpt.com), `405` (gemini.google.com); switching to the vendor browser session lets the request reach ChatGPT's private API and returns the site's own response (403 anti-bot when not logged in). Some sites' private APIs also use page-generated PoW / sentinel tokens that may still need targeted adaptation after login
+- Dual-protocol egress: `POST /v1/chat/completions` (OpenAI) and `POST /v1/messages` (Anthropic), **both support `stream: true`**; SSE framing (chunked) is hand-written with no web framework
+- `/v1/models` lists each web source's models plus `gpt-4o` / `claude-sonnet-4-5` / `gemini-2.5-pro` aliases; the response echoes back the model name the client requested
+- Local auth: `Authorization: Bearer sk-irixen-…` or `x-api-key`; by default it only listens on `127.0.0.1`, not exposed
+- The panel can change the port, enable auto-start, and show live request logs (**matched web source** / path / status / latency / error); a failed start leaves the reason on the panel
+- **No loss of thinking content**: a reasoning model's `reasoning` maps to `reasoning_content` on the OpenAI side and folds into the body on the Anthropic side; if the body is empty, the thinking text is used as a fallback
+- Plain text: by default only the **latest user message** is sent to the vendor site (the page itself is a stateful session that maintains persona and history, so IRIXEN's system prompt is not re-injected); a web source's "send content" can switch back to `full prompt + history`. Stateless channels like `direct template` / `api` always need the full prompt. tools / images / attachments are not supported; the web side is an unofficial interface and may break at any time; credentials are stored only in the local config
+
+Usage: in the panel, click **Open vendor site** for each web source to log in (or switch to "direct template" and fill the session credential) → **Save & Apply** → **Start** → point the client's OpenAI `base_url` at `http://127.0.0.1:8791/v1` (Anthropic SDK: `http://127.0.0.1:8791`), and fill the model name per the routing table. `/v1/models` needs no auth; `/v1/chat/completions` and `/v1/messages` need the local key from the panel.
+
+**Skills**
+
+- `SKILL.md` + frontmatter (`name` / `description` / `when`); when `when` matches the user input, the system prompt is injected automatically
+- 5 in-house built-in skills, all oriented toward "save tokens, fewer detours": `token-saver` `diff-surgeon` `repo-scout` `commit-craft` `code-reviewer`
+- Interactive install: a local directory, an http(s) link to a `SKILL.md`, or a Git repo
+- Only matched skills are injected — the full skill set is never stuffed into context, which is itself a token-saving design
+
+## Installation
+
+Two release assets are published; the installer is the recommended path:
+
+- **Windows installer (recommended)**: on [Releases](https://github.com/lanche-furry/IRIXEN-Code/releases) download `IRIXEN Code_*_x64-setup.exe` and run it. It creates Start Menu / desktop shortcuts and bootstraps the WebView2 Runtime (Win10 needs internet; Win11 has it built in). The installer has a built-in **English / Simplified Chinese** language-selection screen.
+- **Portable**: `irixen-code.exe` runs without installation.
+
+> WebView2 Runtime is required: Win11 has it built in; Win10 gets it via the installer over the internet.
+
+## Quick Start
 
 ```bash
-npm install && npm run app:build
+npm install
+npm run app:dev      # develop (auto-starts vite + tauri)
+npm run app:release  # build the standalone release exe (--no-bundle)
+npm run app:build    # build the NSIS installer
 ```
 
-Apache-2.0.
+After first launch: go to `Settings → Providers`, enter the Base URL and API Key, click **Test connection**, and the model list appears automatically; then pick a model and a thinking-effort level above the chat box.
+
+> Build environment: Rust 1.77+ (GNU target), Node 18+, WebView2 on Windows 10/11.
+> This repo uses a **portable toolchain**: Rust and build tools all live under `.tools/` — see [docs/BUILD.md](docs/BUILD.md).
+
+## Project Layout
+
+```
+src/                    Frontend (TypeScript, zero framework)
+  core/                dom / i18n (8 languages) / api / state
+  core/locales/        zh-TW / es-ES / fr-FR (the rest inline in i18n.ts)
+  ui/                  shell (layout + quick bar) · chat · editor · explorer · search
+                       git · skills · stats · review · bridge · extensions · settings
+  styles/              base.css + app.css (all design tokens)
+src-tauri/             Rust backend
+  src/agent/           provider (three protocols) / models / context / tools / meter / types
+  src/bridge.rs        Web2API: hand-written HTTP/1.1 + SSE, OpenAI / Anthropic dual egress
+  src/extensions.rs    Extension subsystem: VSIX unpacking (built-in ZIP reader) / Open VSX store / themes·snippets·skills
+  src/exthost/         Node extension host: process management + NDJSON RPC + bootstrap.js (vscode API shim)
+  src/commands.rs      IPC command surface
+  src/mcp.rs           MCP stdio client
+  src/skills.rs        Skill registry (compile-time built-ins + user installs)
+  src/skills/builtin/  5 built-in SKILL.md
+public/assets/         Wordmark and other static assets
+assets/icon.png        App icon master (1254×1254 transparent PNG; `npm run icons` generates the full size set)
+scripts/               Icon generation / portable toolchain launcher
+docs/                  Architecture, build, skill development
+```
+
+## Documentation
+
+- [Architecture](docs/ARCHITECTURE.md)
+- [Build & Toolchain](docs/BUILD.md)
+- [Skill Development](docs/SKILLS.md)
+- [Contributing](CONTRIBUTING.md)
+
+## License
+
+[Apache License 2.0](LICENSE) © lanche-furry
+
+</div>
