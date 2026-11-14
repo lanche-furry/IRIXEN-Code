@@ -164,9 +164,19 @@ async fn newest_from_list(
     }
     let rows: Vec<serde_json::Value> =
         serde_json::from_str(&body).map_err(|e| format!("解析 GitHub 响应失败：{e}"))?;
-    Ok(rows
-        .into_iter()
-        .find(|r| r.get("draft").and_then(|v| v.as_bool()) != Some(true)))
+    // Daily CI builds live under the rolling `nightly` tag. Those are build
+    // artifacts, not versions: `nightly` parses as a pre-release name that
+    // sorts above every real tag, so offering it here would tell every user
+    // they are out of date. Keep only tags whose first component is numeric.
+    Ok(rows.into_iter().find(|r| {
+        if r.get("draft").and_then(|v| v.as_bool()) == Some(true) {
+            return false;
+        }
+        let tag = str_field(r, "tag_name");
+        let head = tag.trim_start_matches(['v', 'V']);
+        let first = head.split('.').next().unwrap_or("");
+        !first.is_empty() && first.bytes().all(|b| b.is_ascii_digit())
+    }))
 }
 
 fn str_field(v: &serde_json::Value, key: &str) -> String {

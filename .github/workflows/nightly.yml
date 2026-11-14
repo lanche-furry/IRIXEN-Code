@@ -1,0 +1,112 @@
+name: Nightly build
+
+# One installer a day, built from the head of `main` and published as the
+# rolling `nightly` pre-release. It is a build artifact, not a version: the
+# in-app updater only considers versioned tags (see src-tauri/src/update.rs),
+# so a nightly never pops an "update available" prompt.
+#
+# CI deliberately does NOT go through scripts/build.mjs. That wrapper expects
+# the portable toolchain in .tools/ (git-ignored) and pins windows-gnu with
+# rust-lld; a Windows runner already ships the MSVC toolchain, and Tauri treats
+# that as the native target.
+
+on:
+  schedule:
+    # 19:00 UTC = 03:00 Asia/Shanghai, every day.
+    - cron: "0 19 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  windows-installer:
+    # Schedules fire on the default branch of the origin repo only; this also
+    # keeps forks from publishing releases into their own repo by accident.
+    if: github.repository == 'lanche-furry/IRIXEN-Code'
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    env:
+      CARGO_TERM_COLOR: always
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+
+      # `tauri build` runs beforeBuildCommand (`npm run build`), which is the
+      # type check plus the Vite bundle, then links the release exe and packs
+      # the NSIS installer from src-tauri/tauri.conf.json.
+      - name: Build NSIS installer
+        run: npm run tauri build
+
+      - name: Collect installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          date=$(date -u +%Y%m%d)
+          echo "DATE=$date" >> "$GITHUB_ENV"
+          src=$(find src-tauri/target/release/bundle/nsis -name '*-setup.exe' | head -n1)
+          test -n "$src" || { echo "no installer produced"; exit 1; }
+          cp "$src" "IRIXEN Code_nightly-${date}_x64-setup.exe"
+          ls -l ./*.exe
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: irixen-nightly-${{ env.DATE }}
+          path: IRIXEN Code_nightly-*.exe
+          retention-days: 14
+
+      - name: Publish rolling nightly release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          {
+            echo "自动每日构建，来自 \`main\` 的最新提交。"
+            echo
+            echo "- 提交：\`$(git rev-parse --short HEAD)\`"
+            echo "- 构建时间：$(date -u '+%Y-%m-%d %H:%M UTC')"
+            echo "- 版本基线：$(node -p "require('./package.json').version")"
+            echo "- 安装包：\`IRIXEN Code_nightly-${DATE}_x64-setup.exe\`"
+            echo
+            echo "每日构建可能不稳定，正式版本请看 Beta 发布。"
+            echo
+            echo "最近提交："
+            echo
+            echo '```'
+            git log --oneline -10
+            echo '```'
+          } > nightly-notes.md
+
+          # Recreate instead of patching: nightlies are disposable, and a fresh
+          # release keeps exactly one asset per day.
+          gh release delete nightly --yes --cleanup-tag || true
+          gh release create nightly "IRIXEN Code_nightly-${DATE}_x64-setup.exe" \
+            --title "Nightly ${DATE}" \
+            --notes-file nightly-notes.md \
+            --prerelease \
+            --target "$GITHUB_SHA"
