@@ -218,23 +218,40 @@ git tag Beta0.2 && git push origin Beta0.2
 
 推 tag 会触发 `.github/workflows/release.yml`：Windows 打 NSIS、Linux 打 deb + AppImage，然后发布为 **latest 频道**（`--latest`、非 prerelease），所以应用内「检查更新」会把它当作最新版。发布说明取自 `docs/release-notes/<tag>.md`，该文件不存在则用 GitHub 自动生成的版本。
 
-**发布说明必须中英双语**。两边讲同一批变更，顺序一致，不要一边多出条目：
+**发布说明用 Beta 0.1 的排版：一份文档，每行都带两种语言**，不做「中文半篇 + 英文半篇」的分段：
 
+```markdown
+# IRIXEN Code Beta 0.2
+
+中文导语（这一版解决了什么）。
+
+English intro, same content.
+
+## 修复 / Fixes
+
+### 安装后不再跳过初始化 / Setup is no longer skipped after install
+
+中文段落（需要讲清因果的地方）。
+
+English paragraph saying the same thing.
+
+- 中文要点 / English bullet point
 ```
-# Beta 0.2 · 发行说明 / Release Notes
 
-## 简体中文
-（正文：改了什么、装哪个包、怎么装、已知问题）
+- 标题行、`##`/`###` 标题、`-` 要点：一律 `中文 / English`，斜杠两边**各留一个空格**（脚本按这个切分）。
+- 长段落用两段：先中文段，空行，再英文段。
+- 命令、文件名、版本号两边都写全 —— 别让英文读者回翻中文段去找 `chmod +x`。
+- 不要写成 `## 简体中文` / `## English` 两半：读者只想读一种语言时，得先跳过整份译文。
 
----
+`docs/release-notes/Beta0.2.md` 是现成的样板；`nightly` 频道的说明由 `nightly.yml` 现场生成，同一套排版，不需要手写文件。
 
-## English
-（与上面逐节对应的英文正文）
+这条规则有闸门，不靠自觉：`npm run notes:check -- Beta0.2` 会检查标题是 `# IRIXEN Code <版本>`、每个标题行与要点都是 `中文 / English`（双语要点至少 6 条）、中英文字数都够，不达标直接指出是哪一行。`release.yml` 在发布前跑同一个脚本（`scripts/notes-check.mjs`），不达标就停在上传之前。已经发出去的 release 想改正文，不必为了几行字重建两个平台的包：用令牌直接改，只动正文、附件不受影响。
+
+```bash
+TOKEN=…   # 细粒度 PAT，需要 contents: write
+GH_TOKEN=$TOKEN gh release edit Beta0.2 --repo lanche-furry/IRIXEN-Code \
+  --notes-file docs/release-notes/Beta0.2.md
 ```
-
-中文在前（主要受众），英文在后，中间用 `---` 分隔。表格、命令、文件名两边都完整写一遍 —— 别让英文读者回翻中文段去找安装命令。`docs/release-notes/Beta0.2.md` 是现成的样板。`nightly` 频道的说明由 `nightly.yml` 现场生成，同样是这个结构，不需要手写文件。
-
-这条规则有闸门，不靠自觉：`npm run notes:check -- Beta0.2` 校验两半是否齐全（缺英文段、英文在前、只有标题没正文都会直接失败并指出原因）。`release.yml` 在发布前跑同一个脚本（`scripts/notes-check.mjs`），不达标就停在上传之前。已经发出去的 release 想补正文，不必为了改一段文字重建两个平台的包 —— 跑一次 **Release notes** 工作流（`.github/workflows/release-notes.yml`），填 tag，它只改正文、不动附件；它总是从默认分支读说明，所以 tag 之后才改的文字也能生效。
 
 **不要手动建 Release**：手动创建的 release 不会带 Linux 包，还容易和 tag 触发的那次抢同一个 tag。工作流发布前会核对 tag 的数字化形式与 `package.json` 版本，对不上直接失败——这就是为了拦住「忘了 bump 就发版」。
 

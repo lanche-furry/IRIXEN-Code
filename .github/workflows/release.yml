@@ -212,9 +212,9 @@ jobs:
               esac;;
           esac
 
-      # Release notes are a deliverable, not an afterthought: both halves or the
-      # release fails here, before anything is uploaded. Chinese first, then the
-      # English half after a `---` (see docs/release-notes/Beta0.2.md).
+      # Release notes are a deliverable, not an afterthought: the Beta 0.1
+      # layout (`中文 / English` on every heading and bullet) or the release
+      # fails here, before anything is uploaded. See docs/release-notes/Beta0.2.md.
       - name: Check the release notes are bilingual
         shell: bash
         env:

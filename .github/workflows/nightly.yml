@@ -170,8 +170,9 @@ jobs:
           path: dist
           merge-multiple: true
 
-      # Release notes are bilingual on every channel: Chinese first, then the
-      # English half. Same order and structure as docs/release-notes/<tag>.md.
+      # Same layout as the tagged releases (Beta 0.1): one document, both
+      # languages on every line — prose as a Chinese paragraph followed by its
+      # English counterpart, headings and bullets as `中文 / English`.
       - name: Build release notes
         shell: bash
         run: |
@@ -182,47 +183,24 @@ jobs:
           sha=$(git rev-parse --short HEAD)
           built=$(date -u '+%Y-%m-%d %H:%M UTC')
           {
-            echo "# Nightly ${date} · 发行说明 / Release Notes"
+            echo "# IRIXEN Code Nightly ${date}"
             echo
-            echo "## 简体中文"
+            echo "自动每日构建，来自 \`main\` 的最新提交；每日构建可能不稳定，正式版本请看 Beta 发布。"
             echo
-            echo "自动每日构建，来自 \`main\` 的最新提交。"
+            echo "Automated nightly build from the latest commit on \`main\`. Nightlies can be unstable — for releases, see the Beta channel."
             echo
-            echo "- 提交：\`${sha}\`"
-            echo "- 构建时间：${built}"
-            echo "- 版本基线：${version}"
+            echo "## 构建信息 / Build"
             echo
-            echo "| 平台 | 安装包 |"
-            echo "| --- | --- |"
-            echo "| Windows x64 | \`IRIXEN Code_nightly-${date}_x64-setup.exe\` |"
-            echo "| Linux x64 | \`IRIXEN_Code_nightly-${date}_amd64.AppImage\` / \`.deb\` |"
+            echo "- 提交：\`${sha}\` / Commit: \`${sha}\`"
+            echo "- 构建时间：${built} / Built at: ${built}"
+            echo "- 版本基线：${version} / Version baseline: ${version}"
             echo
-            echo "每日构建可能不稳定，正式版本请看 Beta 发布。"
+            echo "## 安装 / Install"
             echo
-            echo "最近提交："
+            echo "- **Windows x64**：\`IRIXEN Code_nightly-${date}_x64-setup.exe\`，双击安装 / \`IRIXEN Code_nightly-${date}_x64-setup.exe\` — run it to install"
+            echo "- **Linux x64**：\`IRIXEN_Code_nightly-${date}_amd64.AppImage\` 或 \`.deb\` / \`IRIXEN_Code_nightly-${date}_amd64.AppImage\` or \`.deb\`"
             echo
-            echo '```'
-            git log --oneline -10
-            echo '```'
-            echo
-            echo "---"
-            echo
-            echo "## English"
-            echo
-            echo "Automated nightly build from the latest commit on \`main\`."
-            echo
-            echo "- Commit: \`${sha}\`"
-            echo "- Built at: ${built}"
-            echo "- Version baseline: ${version}"
-            echo
-            echo "| Platform | Installer |"
-            echo "| --- | --- |"
-            echo "| Windows x64 | \`IRIXEN Code_nightly-${date}_x64-setup.exe\` |"
-            echo "| Linux x64 | \`IRIXEN_Code_nightly-${date}_amd64.AppImage\` / \`.deb\` |"
-            echo
-            echo "Nightlies can be unstable. For releases, see the Beta channel."
-            echo
-            echo "Recent commits:"
+            echo "## 最近提交 / Recent commits"
             echo
             echo '```'
             git log --oneline -10

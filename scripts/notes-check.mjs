@@ -1,13 +1,14 @@
 #!/usr/bin/env node
-// Release notes are a deliverable for two audiences, so every notes file must
-// carry both halves: "## 简体中文" first, then "## English" after a `---`.
+// Release notes follow the Beta 0.1 layout: one document, both languages on
+// every line, `中文 / English`. Long prose is two paragraphs (Chinese first),
+// headings and bullets carry the pair on the same line — see
+// docs/release-notes/Beta0.2.md.
 //
-//   node scripts/notes-check.mjs Beta0.2                 # gate, fails when not bilingual
+//   node scripts/notes-check.mjs Beta0.2                 # gate, fails when it drifts
 //   node scripts/notes-check.mjs Beta0.2 --allow-missing # warn instead when no file
 //
-// Same check runs in .github/workflows/release.yml (before publishing) and in
-// release-notes.yml (when re-syncing the body of an existing release), so the
-// rule lives in one place instead of being copy-pasted into YAML.
+// Runs in .github/workflows/release.yml before publishing, and locally as
+// `npm run notes:check -- <tag>` — one implementation, no copy-paste into YAML.
 
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
@@ -38,36 +39,73 @@ if (!existsSync(path)) {
 }
 
 const text = readFileSync(path, "utf8");
+const lines = text.split(/\r?\n/);
 
-// Anchored to a heading line: the phrase also shows up in prose ("see the
-// 简体中文 section"), and that must not count as the section itself.
-const zhAt = text.search(/^##+[ \t]*简体中文[ \t]*$/m);
-const enAt = text.search(/^##+[ \t]*English[ \t]*$/m);
+const hasCjk = (s) => /[\u4e00-\u9fff]/.test(s);
+const hasLatin = (s) => /[A-Za-z]{2,}/.test(s);
+
+/** Both languages on one line: Chinese on the left, English after the first
+ *  ` / `. Returns null when the pair is well formed, or the reason it is not. */
+function pairProblem(line) {
+  const at = line.indexOf(" / ");
+  if (at < 0) return "no ` / ` separator";
+  const zh = line.slice(0, at);
+  const en = line.slice(at + 3);
+  if (!hasCjk(zh)) return "the part before ` / ` is not Chinese";
+  if (!hasLatin(en)) return "the part after ` / ` is not English";
+  return null;
+}
 
 const problems = [];
-if (zhAt < 0) problems.push('no "## 简体中文" heading');
-if (enAt < 0) problems.push('no "## English" heading');
-if (zhAt >= 0 && enAt >= 0 && enAt < zhAt) {
-  problems.push('"## English" comes before "## 简体中文" — Chinese goes first');
+
+const title = lines.find((line) => line.trim()) ?? "";
+if (!/^#\s+IRIXEN Code\s+\S/.test(title)) {
+  problems.push(`first line must be "# IRIXEN Code <version>", found "${title.trim()}"`);
 }
+
+// The old two-halves layout is not wrong prose, it is just not this layout —
+// say so instead of listing every heading it fails.
+if (/^##+\s*(简体中文|English)\s*$/m.test(text)) {
+  problems.push(
+    "looks like the two-halves layout — this repo uses the Beta 0.1 layout: " +
+      "`## 修复 / Fixes`, `- 中文 / English` on every line",
+  );
+}
+
+const badHeadings = [];
+for (const line of lines) {
+  if (!/^#{2,6}\s+\S/.test(line)) continue;
+  const heading = line.replace(/^#{2,6}\s+/, "").trim();
+  const why = pairProblem(heading);
+  if (why) badHeadings.push(`"${heading}" (${why})`);
+}
+if (badHeadings.length > 0) {
+  problems.push(`headings must read "中文 / English": ${badHeadings.join(", ")}`);
+}
+
+// Bullets are where the split shows up most often: one language written, the
+// other forgotten, leaving a Chinese-only list under a bilingual heading.
+const bullets = lines.filter((line) => /^[-*]\s+\S/.test(line));
+const paired = bullets.filter((line) => pairProblem(line.replace(/^[-*]\s+/, "")) === null);
+const MIN_PAIRED = 6;
+if (paired.length < MIN_PAIRED) {
+  problems.push(`only ${paired.length} bilingual bullet(s), need at least ${MIN_PAIRED}`);
+}
+
+// A stub satisfies the shapes above while saying nothing, which is exactly the
+// mistake this check exists to catch.
+const cjk = (text.match(/[\u4e00-\u9fff]/g) ?? []).length;
+const latin = (text.match(/[A-Za-z]/g) ?? []).length;
+if (cjk < 150) problems.push(`only ${cjk} Chinese characters — that is not a release note`);
+if (latin < 250) problems.push(`only ${latin} Latin letters — the English half looks empty`);
 
 if (problems.length > 0) {
-  console.error(`::error::${shown} must be bilingual (Chinese, then English): ${problems.join("; ")}`);
-  console.error("  template: https://github.com/lanche-furry/IRIXEN-Code/blob/main/docs/release-notes/Beta0.2.md");
+  for (const problem of problems) console.error(`::error::${shown}: ${problem}`);
+  console.error("  format: https://github.com/lanche-furry/IRIXEN-Code/blob/main/docs/release-notes/Beta0.2.md");
   process.exit(1);
 }
 
-// A heading with nothing under it satisfies the pattern but says nothing, and
-// that is exactly the mistake this check exists to catch.
-const zhBody = text.slice(zhAt, enAt).trim();
-const enBody = text.slice(enAt).trim();
-const thin = [];
-if (zhBody.length < 200) thin.push(`简体中文 is only ${zhBody.length} chars`);
-if (enBody.length < 200) thin.push(`English is only ${enBody.length} chars`);
-
-if (thin.length > 0) {
-  console.error(`::error::${shown} has empty or stub sections: ${thin.join("; ")}`);
-  process.exit(1);
-}
-
-console.log(`${shown}: bilingual (简体中文 ${zhBody.length} chars, English ${enBody.length} chars)`);
+console.log(
+  `${shown}: bilingual (Beta 0.1 layout) — ${paired.length} paired bullets, ` +
+    `${cjk} Chinese chars, ${latin} Latin letters`,
+);
