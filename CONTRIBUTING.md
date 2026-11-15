@@ -1,5 +1,9 @@
 # 贡献指南
 
+<p align="center">
+  中文 &nbsp;|&nbsp; <a href="./CONTRIBUTING.en.md">English</a>
+</p>
+
 ## 开发环境
 
 ```bash
