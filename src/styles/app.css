@@ -2226,6 +2226,29 @@
 .palette-hint { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .palette-group { margin-left: auto; font-size: 11.5px; color: var(--text-2); flex: none; }
 .palette-empty { padding: 14px; color: var(--text-2); font-size: 14px; }
+/* Session history rows: the title takes the slack and truncates, so a long
+   first message cannot push the timestamp out of the row. */
+.history-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.palette-del {
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 2px 4px;
+  color: var(--text-2);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  opacity: 0;
+}
+.palette-row:hover .palette-del { opacity: 1; }
+.palette-del:hover { color: var(--err); background: var(--err-soft); }
 
 /* ------------------------------------------------- extension webview panel */
 .wv-layer { position: fixed; inset: 0; pointer-events: none; z-index: 60; }

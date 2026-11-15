@@ -9,6 +9,7 @@ import { pickDefaultProvider, providerBlocker, providerReady } from '../core/pro
 import { effortChoices, effortLabel, effortLevel } from '../core/effort';
 import { renderMarkdown } from './markdown';
 import { toast, popupMenu } from './toast';
+import { openHistory } from './history';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import type { AgentEvent, BridgeStatus, Effort, Message, ModelInfo, ProviderConfig } from '../types';
 
@@ -165,6 +166,11 @@ export function renderHead() {
     { class: 'icon-btn', title: t('chat.new'), onClick: () => void newSession() },
     icon('plus', 14),
   );
+  const btnHistory = h(
+    'button',
+    { class: 'icon-btn', title: t('history.title'), onClick: () => openHistory() },
+    icon('history', 14),
+  );
   const btnClear = h(
     'button',
     { class: 'icon-btn', title: t('chat.clear'), onClick: () => void clearSession() },
@@ -173,7 +179,7 @@ export function renderHead() {
   // The Agent page is a first-class surface, not a closable dock: a "close"
   // button here either did nothing (no file open) or silently swapped panes,
   // so it read as a dead control. Closing belongs to the titlebar / Ctrl+Shift+C.
-  headEl.append(title, spacer, btnNew, btnClear);
+  headEl.append(title, spacer, btnHistory, btnNew, btnClear);
 }
 
 function renderToolbar() {
@@ -1076,6 +1082,9 @@ export async function clearSession() {
 /** Load a session's persisted transcript into the panel. */
 export async function loadSession(id: string) {
   app.sessionId = id;
+  // Tell the engine which session is current, so a restart reopens this one
+  // instead of whatever was created last.
+  void api.setActive(id).catch(() => undefined);
   // Adopt the session's own provider/model so the toolbar agrees with what the
   // agent will send on this session's behalf.
   try {
