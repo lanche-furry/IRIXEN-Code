@@ -14,7 +14,8 @@ src-tauri/gen/
 .tmp/
 vite.config.ts.timestamp-*
 
-# Local credentials: the GitHub token is staged at E:/irixen-build/.ghtoken and
-# must never enter the repository (or an installer — see bundle.resources).
+# Local credentials: the GitHub token is staged at E:/irixen-build/.ghtoken,
+# outside this tree. Ignoring the name means a stray copy cannot be committed,
+# and installers are built from this tree, so a committed copy would ship.
 .ghtoken
 *.ghtoken
