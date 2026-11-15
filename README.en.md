@@ -42,6 +42,7 @@ Design goal: **high-quality output, low token cost, no loss of intelligence**. E
 - Seven native tools: `read_file` `write_file` `replace_in_file` `list_dir` `search_files` `run_command` `git`
 - **Hard path sandbox**: no file tool can escape the workspace (`resolve()` validates uniformly)
 - Per-tool turn caps, stop-at-any-time, and per-event streaming (text / thinking / tool call / usage)
+- **Whole-turn undo**: before a turn edits anything, the content of each file **as it was before its first write** is recorded, and a bar above the composer reads "N files changed ⟲ Undo this turn". It rolls back in reverse and deletes the files the turn created, without touching git. A turn over 8MB or touching a binary is marked not undoable with the reason shown (better to refuse than to half-roll-back); only the last 48 turns are kept
 - **MCP client**: JSON-RPC over stdio, handshake `2024-11-05`; MCP tools are scheduled in the same pool as native tools, and on Windows `npx` / `uvx` shims are wrapped in a shell automatically
 
 **Three-stage context compression** (the key to saving tokens)
@@ -60,6 +61,9 @@ The layout is deliberately **not** the VS Code "three permanent columns": a **le
 - **The conversation area is an overlayable canvas**: open a file → the editor plus its tab bar `inset: 0` covers the conversation; a pinned "back to conversation" button on the right of the tab bar stays put and never scrolls away
 - Startup: **no splash window, no intro animation**. The window is created with `visible: true` (background = theme `--bg-0`), so it is visible as soon as the process starts and the first UI frame lands directly on it; `main_loaded` only reclaims focus and records mount time
 - CodeMirror 6 editor: multi-tab, syntax highlighting, dirty markers, `Ctrl+S` save, jump to line from search results
+- **Image input**: `Ctrl+V` to paste or drop a file in; anything wider than 1600px is scaled down onto a white background (transparent PNGs do not turn black). Images go out in each protocol's native shape (OpenAI `image_url` data URLs / Anthropic `source.base64` / Gemini `inlineData`), while text-only turns still send a plain string. 4MB per image, 8 images per message, 1000 tokens each against the context budget
+- **Session history**: a searchable list of sessions (title / message count / relative time) — click to resume, hover to delete. Deleting the session you are in starts a new one, and switching sessions clears pending images
+- **In-app updates**: "Download and install" on the About page streams the installer, hashes it against the release's `checksums.txt` along with its size, then launches the installer and quits. A Windows exe cannot replace itself, so installing is always a separate process
 - Lazy file tree, full-workspace search (respects `ignore` rules), Git panel (stage / commit / push / pull / branch / diff)
 - **Review panel**: scan all workspace changes at a glance (`git status` + diff stats), then hand "what changed and is it risky" plus the current diff to the agent in one click. Line-level diffs are colored red/green and linked with the status bar and quick-bar badges
 - Workspace stats (file count / code lines / size / per-extension distribution / largest file) and API usage (calls, input/output, reasoning, cache hits, grouped by model and session)
