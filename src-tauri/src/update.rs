@@ -167,16 +167,27 @@ async fn newest_from_list(
     // Daily CI builds live under the rolling `nightly` tag. Those are build
     // artifacts, not versions: `nightly` parses as a pre-release name that
     // sorts above every real tag, so offering it here would tell every user
-    // they are out of date. Keep only tags whose first component is numeric.
+    // they are out of date. Everything else that carries a version number is
+    // fair game.
     Ok(rows.into_iter().find(|r| {
         if r.get("draft").and_then(|v| v.as_bool()) == Some(true) {
             return false;
         }
-        let tag = str_field(r, "tag_name");
-        let head = tag.trim_start_matches(['v', 'V']);
-        let first = head.split('.').next().unwrap_or("");
-        !first.is_empty() && first.bytes().all(|b| b.is_ascii_digit())
+        is_version_tag(&str_field(r, "tag_name"))
     }))
+}
+
+/// Release tags follow the product label — `Beta0.1`, `Beta0.2` — or plain
+/// semver (`v0.2.0`). Both are versions; `nightly` is the only tag that is
+/// not. Testing "the first component is all digits" looked equivalent but
+/// rejected `Beta0.1` itself, which silently disabled the update check for
+/// every release cut from this repo's own naming scheme.
+fn is_version_tag(tag: &str) -> bool {
+    let head = tag.trim().trim_start_matches(['v', 'V']);
+    if head.is_empty() || head.eq_ignore_ascii_case("nightly") {
+        return false;
+    }
+    head.bytes().any(|b| b.is_ascii_digit())
 }
 
 fn str_field(v: &serde_json::Value, key: &str) -> String {
@@ -321,5 +332,25 @@ mod tests {
         assert_eq!(compare_semver("0.1.0", "0.1.0"), Ordering::Equal);
         assert_eq!(compare_semver("0.1.0-beta.10", "0.1.0-beta.9"), Ordering::Greater);
         assert_eq!(compare_semver("1.0.0+build.3", "1.0.0"), Ordering::Equal);
+    }
+
+    /// The repo tags releases with the product label (`Beta0.1`), not semver.
+    /// The update check must still see those, while the rolling CI tag must
+    /// never be mistaken for a version.
+    #[test]
+    fn release_tags_are_versions_but_nightly_is_not() {
+        assert!(is_version_tag("Beta0.1"));
+        assert!(is_version_tag("Beta0.2"));
+        assert!(is_version_tag("v0.2.0"));
+        assert!(is_version_tag("0.2.0-beta.1"));
+        assert!(!is_version_tag("nightly"));
+        assert!(!is_version_tag("Nightly"));
+        assert!(!is_version_tag(""));
+    }
+
+    #[test]
+    fn product_label_tags_order_by_their_numbers() {
+        assert_eq!(compare_semver("Beta0.2", "Beta0.1"), Ordering::Greater);
+        assert_eq!(compare_semver("Beta0.2", "0.1.0-beta.1"), Ordering::Greater);
     }
 }

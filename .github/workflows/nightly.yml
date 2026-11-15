@@ -123,6 +123,12 @@ jobs:
         with:
           workspaces: "src-tauri -> target"
 
+      # Pure unit tests: release tag handling, NLS fallback, CSP URL rewriting.
+      # None of them touch the network or a display, so they run before the
+      # expensive release build and fail the job early.
+      - name: Run unit tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
+
       # tauri.conf.json pins `bundle.targets` to nsis (the Windows product), so
       # the Linux bundles have to be requested explicitly.
       - name: Build deb and AppImage
