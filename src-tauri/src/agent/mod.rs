@@ -7,6 +7,7 @@ pub mod context;
 pub mod meter;
 pub mod models;
 pub mod provider;
+pub mod snapshots;
 pub mod tools;
 pub mod types;
 
@@ -22,7 +23,7 @@ use models::{ModelCache, ModelInfo};
 use provider::ProviderRegistry;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::Emitter;
 use types::*;
@@ -61,6 +62,9 @@ pub struct AgentEngine {
     pub meter: UsageMeter,
     cache: Mutex<ModelCache>,
     active: Mutex<Option<String>>,
+    /// Originals of every file the running turn rewrites, keyed by turn id.
+    turns: Mutex<HashMap<u64, snapshots::Turn>>,
+    turn_seq: AtomicU64,
 }
 
 impl AgentEngine {
@@ -81,6 +85,8 @@ impl AgentEngine {
             meter: UsageMeter::new(),
             cache: Mutex::new(ModelCache::load()),
             active: Mutex::new(None),
+            turns: Mutex::new(HashMap::new()),
+            turn_seq: AtomicU64::new(1),
         });
         engine.load_persisted();
         engine
@@ -223,6 +229,68 @@ impl AgentEngine {
     pub fn delete_session(&self, id: &str) {
         lock(&self.sessions).remove(id);
         let _ = std::fs::remove_file(crate::config::sessions_dir().join(format!("{id}.json")));
+    }
+
+    // -- turn snapshots ---------------------------------------------------
+
+    /// Reserve an id before the first tool call. Turns live in memory only:
+    /// undo is a "that was wrong, put it back" gesture within the same run of
+    /// the app, not an archive.
+    fn begin_turn(&self) -> u64 {
+        let id = self.turn_seq.fetch_add(1, Ordering::SeqCst);
+        let mut turns = lock(&self.turns);
+        // Keep the map from growing without bound over a long session; the UI
+        // only ever offers undo for the newest few turns anyway.
+        if turns.len() >= 64 {
+            let mut ids: Vec<u64> = turns.keys().copied().collect();
+            ids.sort_unstable();
+            for old in ids.into_iter().take(turns.len() - 48) {
+                turns.remove(&old);
+            }
+        }
+        turns.insert(id, snapshots::Turn::default());
+        id
+    }
+
+    /// Capture one file before a write tool touches it, then tell the UI what
+    /// the turn has changed so far. Returns early for reads and MCP calls.
+    fn capture_write(&self, session: &str, turn: u64, name: &str, args: &serde_json::Value, workspace: &str) {
+        if !matches!(name, "write_file" | "replace_in_file") {
+            return;
+        }
+        let Some(raw) = args.get("path").and_then(|v| v.as_str()) else {
+            return;
+        };
+        let ws = std::path::Path::new(workspace);
+        let Ok(abs) = tools::resolve(ws, raw) else {
+            return;
+        };
+        let (files, undoable, reason) = {
+            let mut turns = lock(&self.turns);
+            let Some(entry) = turns.get_mut(&turn) else {
+                return;
+            };
+            entry.capture(&abs, ws);
+            (
+                entry.changed(),
+                entry.undoable(),
+                entry.blocked().map(str::to_string),
+            )
+        };
+        self.emit(AgentEvent::Checkpoint {
+            session: session.to_string(),
+            turn,
+            files,
+            undoable,
+            reason,
+        });
+    }
+
+    /// Put every file of one turn back. Consumes the snapshot so a second
+    /// click cannot re-run a restore that already happened.
+    pub fn undo_turn(&self, turn: u64) -> Result<Vec<String>, String> {
+        let entry = lock(&self.turns).remove(&turn).ok_or("找不到这一轮的快照（已撤销或应用已重启）")?;
+        entry.undo()
     }
 
     pub fn set_model(
@@ -560,6 +628,10 @@ impl AgentEngine {
             }
         }
 
+        // Everything this turn writes is captured here first, so the UI can
+        // offer a single "undo this turn" without touching the user's git state.
+        let turn = self.begin_turn();
+
         // ---- user message (prompt + attachments) ----
         let mut body = prompt.clone();
         let mut consumed = 0usize;
@@ -811,7 +883,7 @@ impl AgentEngine {
                     });
                     let args: serde_json::Value =
                         serde_json::from_str(arguments).unwrap_or_else(|_| serde_json::json!({}));
-                    let (output, is_error) = self.execute_tool(name, &args).await;
+                    let (output, is_error) = self.execute_tool(&session_id, turn, name, &args).await;
                     self.emit(AgentEvent::ToolResult {
                         session: session_id.clone(),
                         id: id.clone(),
@@ -867,7 +939,13 @@ impl AgentEngine {
         tools
     }
 
-    async fn execute_tool(&self, name: &str, args: &serde_json::Value) -> (String, bool) {
+    async fn execute_tool(
+        &self,
+        session: &str,
+        turn: u64,
+        name: &str,
+        args: &serde_json::Value,
+    ) -> (String, bool) {
         if name.starts_with("mcp__") {
             match self.mcp.call(name, args).await {
                 Ok(out) => (out, false),
@@ -881,6 +959,9 @@ impl AgentEngine {
             if workspace.is_empty() {
                 return ("没有打开工作区。请先在左上角打开一个文件夹。".into(), true);
             }
+            // Snapshot before the tool runs: by the time it returns, the old
+            // bytes are gone.
+            self.capture_write(session, turn, name, args, &workspace);
             match tools::execute_native(name, args, std::path::Path::new(&workspace)).await {
                 Ok(out) => (out, false),
                 Err(e) => (e, true),

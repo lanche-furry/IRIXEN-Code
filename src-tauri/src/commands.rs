@@ -243,6 +243,13 @@ pub fn agent_delete(engine: State<'_, Arc<AgentEngine>>, id: String) {
     engine.delete_session(&id)
 }
 
+/// Put every file the given turn rewrote back the way it was. Returns the
+/// workspace-relative paths that were restored, so the UI can report them.
+#[tauri::command]
+pub fn agent_undo_turn(engine: State<'_, Arc<AgentEngine>>, turn: u64) -> Result<Vec<String>, String> {
+    engine.undo_turn(turn)
+}
+
 #[tauri::command]
 pub fn agent_set_model(
     engine: State<'_, Arc<AgentEngine>>,

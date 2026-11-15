@@ -202,6 +202,7 @@ pub fn run() {
             commands::agent_stop,
             commands::agent_clear,
             commands::agent_delete,
+            commands::agent_undo_turn,
             commands::agent_set_model,
             commands::set_default_effort,
             commands::agent_busy,

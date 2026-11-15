@@ -4,7 +4,7 @@ import { h, clear, basename, fmtNum } from '../core/dom';
 import { icon } from './icons';
 import { t } from '../core/i18n';
 import { api, errText, onAgentEvent, type AttachmentRef } from '../core/api';
-import { app, emit, setStatus, type ChatItem } from '../core/state';
+import { app, emit, setStatus, type ChatItem, type ChatTurn } from '../core/state';
 import { pickDefaultProvider, providerBlocker, providerReady } from '../core/providers';
 import { effortChoices, effortLabel, effortLevel } from '../core/effort';
 import { renderMarkdown } from './markdown';
@@ -48,6 +48,8 @@ interface MsgView {
   reason: HTMLElement | null;
   note: HTMLElement | null;
   tools: Map<string, ToolView>;
+  /** Footer offering "undo this turn"; only assistant turns that wrote files. */
+  turnBar: HTMLElement | null;
 }
 
 const views = new Map<string, MsgView>();
@@ -361,7 +363,7 @@ function buildMessage(item: ChatItem): MsgView {
 
   root.append(body);
 
-  const view: MsgView = { root, text, reason, note, tools: new Map() };
+  const view: MsgView = { root, text, reason, note, tools: new Map(), turnBar: null };
   views.set(item.id, view);
 
   if (item.tools) {
@@ -369,7 +371,73 @@ function buildMessage(item: ChatItem): MsgView {
   }
 
   paintText(item, view);
+  if (item.turn) paintTurnBar(item, view);
   return view;
+}
+
+/** Footer under an assistant message: "this turn rewrote N files — undo it".
+ *  The snapshot lives in Rust for the lifetime of the process, so this is the
+ *  only way to get a batch of edits back without reading `git diff` by hand. */
+function paintTurnBar(item: ChatItem, view: MsgView) {
+  const turn = item.turn;
+  if (!turn) return;
+  const existing = view.turnBar;
+  const bar = existing ?? h('div', { class: 'turn-bar' });
+  clear(bar);
+
+  if (turn.undone) {
+    bar.className = 'turn-bar done';
+    bar.append(icon('check', 12), h('span', null, t('chat.undone', { n: String(turn.files.length) })));
+  } else if (!turn.undoable) {
+    // Refusing beats a half restore: say why instead of offering the button.
+    bar.className = 'turn-bar blocked';
+    bar.append(
+      icon('alert', 12),
+      h('span', null, t('chat.undoBlocked', { reason: turn.reason || '' })),
+    );
+  } else {
+    bar.className = 'turn-bar';
+    const files = turn.files.length;
+    const btn = h(
+      'button',
+      { class: 'turn-undo', type: 'button', title: turn.files.join('\n') },
+      icon('refresh', 12),
+      h('span', null, turn.undoing ? t('chat.undoing') : t('chat.undoTurn')),
+    ) as HTMLButtonElement;
+    btn.disabled = Boolean(turn.undoing);
+    btn.addEventListener('click', () => void runUndo(item));
+    bar.append(
+      btn,
+      h('span', { class: 'turn-files', title: turn.files.join('\n') }, t('chat.turnFiles', { n: String(files) })),
+    );
+  }
+
+  if (!existing) {
+    view.turnBar = bar;
+    view.root.append(bar);
+  }
+}
+
+async function runUndo(item: ChatItem) {
+  const turn = item.turn;
+  if (!turn || turn.undone || turn.undoing) return;
+  turn.undoing = true;
+  const view = views.get(item.id);
+  if (view) paintTurnBar(item, view);
+  try {
+    await api.undo(turn.id);
+    turn.undone = true;
+    turn.undoing = false;
+    if (view) paintTurnBar(item, view);
+    // The tree, git status and the review list all describe files that just
+    // changed underneath them.
+    emit('git:changed');
+    emit('workspace');
+  } catch (e) {
+    turn.undoing = false;
+    if (view) paintTurnBar(item, view);
+    toast(errText(e), 'err');
+  }
 }
 
 function paintText(item: ChatItem, view: MsgView) {
@@ -524,6 +592,19 @@ function handleEvent(ev: AgentEvent) {
         tv.dot.className = `tool-status${ev.is_error ? ' err' : ''}`;
         tv.args.textContent = oneLine(tool?.args || '', 90);
       }
+      scrollDown();
+      break;
+    }
+    case 'checkpoint': {
+      const item = ensureAssistant();
+      item.turn = {
+        id: ev.turn,
+        files: ev.files,
+        undoable: ev.undoable,
+        reason: ev.reason,
+      };
+      const view = views.get(item.id);
+      if (view) paintTurnBar(item, view);
       scrollDown();
       break;
     }

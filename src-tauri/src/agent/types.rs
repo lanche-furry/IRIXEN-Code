@@ -169,6 +169,16 @@ pub enum AgentEvent {
     ToolResult { session: String, id: String, name: String, output: String, is_error: bool },
     Usage { session: String, usage: Usage },
     Compressed { session: String, report: CompressionReport },
+    /// The running turn has touched files. `files` is cumulative for the turn,
+    /// `undoable` goes false when a snapshot had to be refused (binary file,
+    /// too much data) and `reason` then says why.
+    Checkpoint {
+        session: String,
+        turn: u64,
+        files: Vec<String>,
+        undoable: bool,
+        reason: Option<String>,
+    },
     Done { session: String, text: String },
     Error { session: String, text: String },
 }

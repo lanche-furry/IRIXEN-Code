@@ -130,7 +130,7 @@ pub fn native_tool_specs() -> Vec<ToolSpec> {
 }
 
 /// Resolve a user-supplied path and refuse anything outside the workspace.
-fn resolve(workspace: &Path, raw: &str) -> Result<PathBuf, String> {
+pub(crate) fn resolve(workspace: &Path, raw: &str) -> Result<PathBuf, String> {
     let ws = workspace
         .canonicalize()
         .unwrap_or_else(|_| workspace.to_path_buf());

@@ -21,6 +21,17 @@ export interface OpenFile {
   lang: string;
 }
 
+/** Files one agent turn rewrote, and whether they can still be put back. */
+export interface ChatTurn {
+  id: number;
+  files: string[];
+  undoable: boolean;
+  reason?: string | null;
+  /** Set once the restore ran, so the bar stops offering it. */
+  undone?: boolean;
+  undoing?: boolean;
+}
+
 export interface ChatItem {
   id: string;
   role: 'user' | 'assistant' | 'system';
@@ -30,6 +41,7 @@ export interface ChatItem {
   note?: string;
   error?: boolean;
   streaming?: boolean;
+  turn?: ChatTurn;
 }
 
 export const app = {

@@ -326,6 +326,17 @@ export type AgentEvent =
   | { kind: 'tool_result'; session: string; id: string; name: string; output: string; is_error: boolean }
   | { kind: 'usage'; session: string; usage: Usage }
   | { kind: 'compressed'; session: string; report: CompressionReport }
+  /// Emitted before a write tool runs, then again after each further write:
+  /// `files` is cumulative for the turn, and `undoable` goes false once a
+  /// snapshot had to be refused (binary file, oversized originals).
+  | {
+      kind: 'checkpoint';
+      session: string;
+      turn: number;
+      files: string[];
+      undoable: boolean;
+      reason: string | null;
+    }
   | { kind: 'done'; session: string; text: string }
   | { kind: 'error'; session: string; text: string };
 

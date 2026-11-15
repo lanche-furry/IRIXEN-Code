@@ -26,7 +26,10 @@ import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
-const tools = path.join(root, '.tools');
+// The toolchain is 2.6 GB and gitignored; it can live outside the tree (this
+// machine keeps it under the build root) via IRIXEN_TOOLS. `.tools/` stays the
+// default so a checkout that already has it needs no configuration.
+const tools = process.env.IRIXEN_TOOLS || path.join(root, '.tools');
 const triple = 'x86_64-pc-windows-gnu';
 const toolchain = path.join(tools, 'rustup', 'toolchains', `stable-${triple}`);
 const cargoBin = path.join(tools, 'cargo', 'bin', 'cargo.exe');
@@ -71,6 +74,7 @@ if (mode === 'tauri') {
 } else {
   if (!existsSync(cargoBin)) {
     console.error('Portable cargo missing at', cargoBin);
+    console.error('Install the toolchain there, or point IRIXEN_TOOLS at an existing one.');
     process.exit(1);
   }
   cmd = cargoBin;

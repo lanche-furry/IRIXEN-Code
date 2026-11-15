@@ -795,8 +795,36 @@
   align-items: center;
   gap: 6px;
 }
-.msg-text { font-size: 15px; line-height: 1.62; user-select: text; word-break: break-word; }
-.msg-text p { margin: 0 0 6px; }
+/* Undo footer under an assistant turn. Lives outside `.msg-body` so it reads as
+   a result of the turn rather than part of the answer. */
+.turn-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 1px 2px 0;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.turn-bar.done { color: var(--ok); }
+.turn-bar.blocked { color: var(--warn); }
+.turn-bar > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.turn-undo {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 7px;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--text-1);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.turn-undo:hover:not(:disabled) { background: var(--bg-3); color: var(--text-0); border-color: var(--border-strong); }
+.turn-undo:disabled { opacity: 0.6; cursor: default; }
+.turn-files { color: var(--text-2); font-size: 12px; }
+.msg-text { font-size: 15px; line-height: 1.62; user-select: text; word-break: break-word; }.msg-text p { margin: 0 0 6px; }
 .msg-text p:last-child { margin-bottom: 0; }
 .msg-text h1, .msg-text h2, .msg-text h3 { font-size: 16px; margin: 8px 0 5px; }
 .msg-text ul, .msg-text ol { padding-left: 18px; margin: 4px 0 6px; }

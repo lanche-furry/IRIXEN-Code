@@ -47,6 +47,7 @@ export const api = {
   stop: (id: string) => invoke<void>('agent_stop', { id }),
   clear: (id: string) => invoke<void>('agent_clear', { id }),
   deleteSession: (id: string) => invoke<void>('agent_delete', { id }),
+  undo: (turn: number) => invoke<string[]>('agent_undo_turn', { turn }),
   setModel: (id: string, providerId?: string, model?: string, effort?: Effort) =>
     invoke<void>('agent_set_model', { id, providerId, model, effort }),
   setDefaultEffort: (effort: Effort) => invoke<void>('set_default_effort', { effort }),
