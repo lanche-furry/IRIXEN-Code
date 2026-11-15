@@ -11,6 +11,13 @@ Windows 安装包在 VirusTotal 上被 Avira 判为 `TR/Hijacker.Gen`，其余�
 
 签名没有改变结论，说明这不是"未签名"触发的信誉问题，而是**启发式**看安装器做了什么。
 
+原始报告（VirusTotal 导出的 PDF，含完整引擎列表与 ATT&CK 行为项）：
+
+- `docs/antivirus/Beta0.2-installer-5dda6407.pdf` —— Beta 0.2 安装包，SHA256 与上表一致
+- `docs/antivirus/sample-f0fcb54f.pdf` —— 样本 `f0fcb54f…` 的报告，与上表两个安装包都不是同一个文件
+
+这两份是上面结论的原始依据，所以留在仓库里，而不是只贴一行结论。
+
 ## 为什么会命中
 
 NSIS 安装器是自解压 PE，通用启发式主要看它是否改动自己目录之外的东西。Beta 0.1/0.2 的安装器在 `PREINSTALL` 阶段复制并删除 `%APPDATA%\IRIXEN Code\config.json`、`model-cache.json`——"安装包动 AppData 里的配置文件"正是 Hijacker 家族的典型特征。
