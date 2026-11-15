@@ -14,7 +14,7 @@ use crate::net;
 
 /// Product label shown everywhere in the UI. Package metadata must stay valid
 /// semver, so the human-facing version lives here next to the release check.
-pub const DISPLAY_VERSION: &str = "Beta 0.1";
+pub const DISPLAY_VERSION: &str = "Beta 0.2";
 
 pub const REPO_URL: &str = "https://github.com/lanche-furry/IRIXEN-Code";
 pub const RELEASES_URL: &str = "https://github.com/lanche-furry/IRIXEN-Code/releases";
