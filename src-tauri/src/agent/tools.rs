@@ -505,27 +505,35 @@ pub fn human_bytes(n: u64) -> String {
     }
 }
 
+/// The shell a `run_shell` string is handed to.
+///
+/// Split by platform instead of a runtime `cfg!` plus an inner `#[cfg]` block:
+/// the inner block left `mut` and the argv unused on Linux, which is what
+/// produced the `unused_mut` warnings there.
+#[cfg(windows)]
+fn shell_command(command: &str) -> tokio::process::Command {
+    use std::os::windows::process::CommandExt;
+    let mut cmd = tokio::process::Command::new("cmd");
+    // `chcp 65001` makes cmd's builtins (dir, type, …) and child programs
+    // emit UTF-8 instead of the OEM code page, which is what turned every
+    // Chinese path in the terminal into `?`. `raw_arg` passes the command
+    // exactly as written; `arg()` re-quotes it and cmd does not understand
+    // backslash escapes, so `"C:\中文\x.py"` used to arrive with quotes.
+    cmd.as_std_mut()
+        .raw_arg(format!("/S /C \"chcp 65001>nul & {command}\""));
+    cmd
+}
+
+#[cfg(not(windows))]
+fn shell_command(command: &str) -> tokio::process::Command {
+    let mut cmd = tokio::process::Command::new("sh");
+    cmd.arg("-lc").arg(command);
+    cmd
+}
+
 /// Run a shell command with a hard timeout and capped output.
 pub async fn run_shell(command: &str, cwd: &Path, timeout_secs: u64) -> Result<String, String> {
-    let mut cmd = if cfg!(windows) {
-        let mut c = tokio::process::Command::new("cmd");
-        // `chcp 65001` makes cmd's builtins (dir, type, …) and child programs
-        // emit UTF-8 instead of the OEM code page, which is what turned every
-        // Chinese path in the terminal into `?`. `raw_arg` passes the command
-        // exactly as written; `arg()` re-quotes it and cmd does not understand
-        // backslash escapes, so `"C:\中文\x.py"` used to arrive with quotes.
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            c.as_std_mut()
-                .raw_arg(format!("/S /C \"chcp 65001>nul & {command}\""));
-        }
-        c
-    } else {
-        let mut c = tokio::process::Command::new("sh");
-        c.arg("-lc").arg(command);
-        c
-    };
+    let mut cmd = shell_command(command);
     crate::util::utf8_env(&mut cmd);
     cmd.current_dir(cwd)
         .stdin(std::process::Stdio::null())

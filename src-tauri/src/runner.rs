@@ -744,19 +744,23 @@ fn build_stage(argv: &[String], dir: &Path) -> tokio::process::Command {
         .any(|a| a.contains('|') || a.contains('>') || a.contains('<'));
     if shellish {
         let stage = argv.join(" ");
-        if cfg!(windows) {
+        // Platform blocks rather than `if cfg!(windows) { … }`: the runtime form
+        // still compiles both arms, so the Windows-only `mut` and the `cmd`
+        // value warned as unused when building on Linux.
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
             let mut c = tokio::process::Command::new("cmd");
-            #[cfg(windows)]
-            {
-                use std::os::windows::process::CommandExt;
-                c.as_std_mut()
-                    .raw_arg(format!("/S /C \"chcp 65001>nul & {stage}\""));
-            }
+            c.as_std_mut()
+                .raw_arg(format!("/S /C \"chcp 65001>nul & {stage}\""));
             return c;
         }
-        let mut c = tokio::process::Command::new("sh");
-        c.arg("-lc").arg(stage);
-        return c;
+        #[cfg(not(windows))]
+        {
+            let mut c = tokio::process::Command::new("sh");
+            c.arg("-lc").arg(stage);
+            return c;
+        }
     }
 
     let head = argv.first().cloned().unwrap_or_default();
@@ -765,11 +769,13 @@ fn build_stage(argv: &[String], dir: &Path) -> tokio::process::Command {
         // `.bat` / `.cmd` cannot be spawned directly. `cmd /C "<path>" args`
         // with the path quoted is the only form that survives a directory name
         // containing spaces.
-        let rest = argv[1..].join(" ");
         let mut c = tokio::process::Command::new("cmd");
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
+            // Only the Windows form consumes the joined tail, so it is built
+            // here instead of at function scope (Linux warned unused_variables).
+            let rest = argv[1..].join(" ");
             c.as_std_mut()
                 .raw_arg(format!("/S /C \"chcp 65001>nul & \"{}\" {rest}\"", prog));
         }
