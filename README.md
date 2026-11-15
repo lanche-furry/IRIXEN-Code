@@ -106,11 +106,14 @@ DSH 风格的仓库（带 `SKILL.md` 的技能包）会被识别为 `dsh` 类型
 
 ## 安装
 
-发布资产为 Windows 安装程序：
+发布资产按平台提供：
 
-- **Windows 安装程序（推荐）**：在 [Releases](https://github.com/lanche-furry/IRIXEN-Code/releases) 下载 `IRIXEN Code_*_x64-setup.exe`，双击运行即可安装，会在开始菜单与桌面创建快捷方式，并自动补齐 WebView2 Runtime（Win10 需联网；Win11 自带）。安装程序内置 **English / 简体中文** 语言选择界面。
+- **Windows 安装程序（推荐）**：在 [Releases](https://github.com/lanche-furry/IRIXEN-Code/releases/latest) 下载 `IRIXEN Code_*_x64-setup.exe`，双击运行即可安装，会在开始菜单与桌面创建快捷方式，并自动补齐 WebView2 Runtime（Win10 需联网；Win11 自带）。安装程序内置 **English / 简体中文** 语言选择界面。
+- **Linux**：同一页下载 `IRIXEN_Code_*_amd64.AppImage`（`chmod +x` 后直接运行）或 `IRIXEN_Code_*_amd64.deb`（`sudo apt install ./…deb`）。需要系统提供 `libwebkit2gtk-4.1-0` 与 `libgtk-3-0`，deb 会自动拉依赖；AppImage 不带系统库。Ubuntu 22.04+ / Debian 12+ 可直接运行。
 
 > 需要 WebView2 Runtime：Win11 自带；Win10 由安装程序联网补齐。
+
+每日构建在 [nightly](https://github.com/lanche-furry/IRIXEN-Code/releases/tag/nightly) 预发布频道，随 `main` 变动，不保证稳定；正式版以 latest 频道为准。
 
 ## 快速开始
 

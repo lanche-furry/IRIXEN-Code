@@ -158,6 +158,20 @@ IRIXEN_HOME="E:/irixen-build/_probe-home" \
 
 已经装坏的机器不必重装：设置 → 关于 → 维护 → **恢复默认设置**（`config_reset`，旧文件备份成 `config.json.bak-<时间戳>` 后重载窗口，向导会重新出现），或调色板里的 **重新运行首次启动设置**。
 
+## 持续集成
+
+三个工作流，职责不重叠：
+
+| 文件 | 触发 | 做什么 |
+| --- | --- | --- |
+| `.github/workflows/ci.yml` | push 到 `main`、任意 PR、手动 | 双平台（ubuntu-22.04 + windows-latest）快检：`npm run build`（tsc + vite）、`cargo check --all-targets`、`cargo test --lib`。**不打包、不发布** |
+| `.github/workflows/nightly.yml` | 每天 UTC 12:00（北京 20:00）、手动 | 双平台打包，发布到滚动的 `nightly` **预发布**频道 |
+| `.github/workflows/release.yml` | 推 `Beta*` / `v*` tag | 双平台打包，发布为 **latest** 正式频道 |
+
+`ci.yml` 必须跑 Windows：真正有意思的代码在 `#[cfg(windows)]` 后面，只跑 Linux 一行都编不到。反过来 Linux 那次也跑 `cargo test`，因为它出结果最快，逻辑错误能在打包前拦住。
+
+`nightly` 是预发布，且 tag 名不含数字，`is_version_tag` 会把它排除，所以每日构建永远不会弹窗提示普通用户升级。
+
 ## 版本管理（GitHub Releases）
 
 版本真值是 semver，同时写在三处，任何时候都必须一致（否则「关于」页报告的版本和安装包实际携带的版本会不一样）：
@@ -173,12 +187,17 @@ IRIXEN_HOME="E:/irixen-build/_probe-home" \
 **发一个版本**
 
 ```bash
-npm run bump 0.2.0-beta.1          # 同步三处 + Cargo.lock；加 --label "Beta 0.2" 才改产品标签
-npm run build && npm run app:release   # 或 npm run app:build 额外产出 NSIS 安装包
+npm run bump 0.2.0-beta.1 --label "Beta 0.2"   # 三处 manifest + Cargo.lock + DISPLAY_VERSION
+git add -A && git commit -m "release: Beta 0.2"
+git push origin main
 git tag Beta0.2 && git push origin Beta0.2
 ```
 
-然后在 `github.com/lanche-furry/IRIXEN-Code/releases` 为这个 tag 创建 Release（标题同样用 `Beta0.2`，不带前缀 `v`），把 exe / NSIS 安装包作为资产附上。tag 用**产品标签、不带 `v`、不带空格**（如 `Beta0.1`）：`update.rs::compare_semver` 先去掉前缀 `v`/`V` 与 `+build` 元数据，再按 semver 规则比较；`Beta0.1` 这类纯字母数字标签被解析为 `0.1`，与当前 semver `0.1.0-beta.1` 比较时不会误报「有更新」，后续 `Beta0.2` → `0.2` 才会正确提示升级。
+推 tag 会触发 `.github/workflows/release.yml`：Windows 打 NSIS、Linux 打 deb + AppImage，然后发布为 **latest 频道**（`--latest`、非 prerelease），所以应用内「检查更新」会把它当作最新版。发布说明取自 `docs/release-notes/<tag>.md`，该文件不存在则用 GitHub 自动生成的版本。
+
+**不要手动建 Release**：手动创建的 release 不会带 Linux 包，还容易和 tag 触发的那次抢同一个 tag。工作流发布前会核对 tag 的数字化形式与 `package.json` 版本，对不上直接失败——这就是为了拦住「忘了 bump 就发版」。
+
+**标签与版本的关系**：tag 用**产品标签、不带 `v`、不带空格**（`Beta0.1`、`Beta0.2`）。`compare_semver` 把 `Beta0.2` 解析成 `0.2`，因此 `Beta0.2` 对 `0.1.0-beta.1` 判为更新。但标签本身不带预发布后缀，对 `0.2.0-beta.1` 反而会被判成更高，所以 `from_release` 先用 `is_current_label` 比对产品标签，相同就直接认定「无更新」——否则刚装上 Beta0.2 的人会被提示升级到 Beta0.2。`nightly` 由 `is_version_tag` 排除在版本判断之外：它是每日构建，不是版本。
 
 **应用内检查更新**：设置 → 关于 → 检查更新。`app_check_update` 读 `/releases/latest`；404 时回退 `/releases` 列表（覆盖只有草稿或预发布的仓库）；仍为空就显示「GitHub 上还没有发布版本」并给出发布页入口。结果缓存 10 分钟，按钮强制刷新；网络走 `net::build_client`，遵循设置 → 网络的代理配置。应用**只读取**元数据并打开下载页，不会自行下载或替换正在运行的 exe —— Windows 上运行的 exe 无法覆盖自身，更新说明也应该由用户先看到。
 

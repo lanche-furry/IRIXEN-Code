@@ -106,11 +106,14 @@ DSH-style repos (skill packs with a `SKILL.md`) are recognized as type `dsh` and
 
 ## Installation
 
-One release asset is published: the Windows installer.
+Release assets are published per platform:
 
-- **Windows installer (recommended)**: on [Releases](https://github.com/lanche-furry/IRIXEN-Code/releases) download `IRIXEN Code_*_x64-setup.exe` and run it. It creates Start Menu / desktop shortcuts and bootstraps the WebView2 Runtime (Win10 needs internet; Win11 has it built in). The installer has a built-in **English / Simplified Chinese** language-selection screen.
+- **Windows installer (recommended)**: on [Releases](https://github.com/lanche-furry/IRIXEN-Code/releases/latest) download `IRIXEN Code_*_x64-setup.exe` and run it. It creates Start Menu / desktop shortcuts and bootstraps the WebView2 Runtime (Win10 needs internet; Win11 has it built in). The installer has a built-in **English / Simplified Chinese** language-selection screen.
+- **Linux**: from the same page take `IRIXEN_Code_*_amd64.AppImage` (`chmod +x`, then run) or `IRIXEN_Code_*_amd64.deb` (`sudo apt install ./…deb`). The system must provide `libwebkit2gtk-4.1-0` and `libgtk-3-0`; the deb pulls them in, the AppImage does not bundle system libraries. Ubuntu 22.04+ / Debian 12+ run it directly.
 
 > WebView2 Runtime is required: Win11 has it built in; Win10 gets it via the installer over the internet.
+
+Daily builds live in the [nightly](https://github.com/lanche-furry/IRIXEN-Code/releases/tag/nightly) pre-release channel. They track `main` and are not stable — the latest channel is the supported release.
 
 ## Quick Start
 
