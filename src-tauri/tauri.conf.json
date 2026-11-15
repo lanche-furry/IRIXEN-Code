@@ -45,7 +45,7 @@
     "active": true,
     "targets": ["nsis"],
     "publisher": "IRIXEN",
-    "copyright": "Copyright 2026 IRIXEN. Licensed under Apache-2.0.",
+    "copyright": "© 2026 IRIXEN",
     "category": "DeveloperTool",
     "shortDescription": "IRIXEN Code — lightweight desktop IDE with built-in IRIXEN Agent",
     "longDescription": "IRIXEN Code is a small, fast desktop IDE with the IRIXEN Agent built in. It speaks OpenAI / Anthropic / Gemini compatible protocols, auto-discovers models and reasoning effort, compresses context aggressively, supports MCP tools and installable skills, and stays light on memory and disk.",

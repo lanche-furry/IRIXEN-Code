@@ -172,6 +172,29 @@ IRIXEN_HOME="E:/irixen-build/_probe-home" \
 
 `nightly` 是预发布，且 tag 名不含数字，`is_version_tag` 会把它排除，所以每日构建永远不会弹窗提示普通用户升级。
 
+## Windows 签名
+
+`release.yml` 在打包后调用 `scripts/sign-windows.ps1`，给 `irixen-code.exe` 和 NSIS 安装包加上 Authenticode 签名（SHA256 + DigiCert 时间戳）。证书来自两个仓库 Secrets：
+
+| Secret | 内容 |
+| --- | --- |
+| `WINDOWS_SIGN_PFX` | `.pfx` 的 base64（`[Convert]::ToBase64String([IO.File]::ReadAllBytes('x.pfx'))`） |
+| `WINDOWS_SIGN_PFX_PASSWORD` | 导出 PFX 时设置的密码 |
+
+两个 Secret 缺任意一个，签名步骤自动跳过，工作流只打一条 warning 继续发布——签名是发布增强，不该成为发布的单点故障。
+
+**自签证书的定位**：文件里会带上 `CN=IRIXEN` 的签名者信息，杀软"未签名二进制"这类启发式不再命中；但证书链在用户机器上不受信任，SmartScreen 依然可能提示"未知发布者"，用户需要点"更多信息 → 仍要运行"。要彻底消除这个提示只能买 OV/EV 代码签名证书，届时把新 PFX 换进同一个 Secret 即可，脚本不用改。
+
+**本地签名**（需要证书和密码在环境变量里）：
+
+```powershell
+$env:SIGN_PFX = Get-Content E:\irixen-build\signing\pfx.base64 -Raw
+$env:SIGN_PFX_PASSWORD = Get-Content E:\irixen-build\signing\password.txt -Raw
+.\scripts\sign-windows.ps1 src-tauri\target\release\irixen-code.exe
+```
+
+安装包内嵌的 exe 是在打包时压进去的，所以**后置签名只覆盖安装包本身和独立 exe**。如果连内嵌 exe 也要签，得在 `bundle.windows.signCommand` 里挂同一个脚本（那样本地构建也必须带证书，故未默认启用）。
+
 ## 版本管理（GitHub Releases）
 
 版本真值是 semver，同时写在三处，任何时候都必须一致（否则「关于」页报告的版本和安装包实际携带的版本会不一样）：
