@@ -1027,6 +1027,21 @@
 }
 .attach-chip button { color: var(--text-2); }
 .attach-chip button:hover { color: var(--err); }
+/* A pasted screenshot shows its own thumbnail — the file name of a clipboard
+   image is meaningless, the picture is the identifier. */
+.attach-chip.image {
+  gap: 5px;
+  padding: 2px 4px 2px 2px;
+  font-family: var(--font-ui);
+}
+.attach-thumb {
+  width: 34px;
+  height: 34px;
+  object-fit: cover;
+  border-radius: 2px;
+  border: 1px solid var(--border);
+  display: block;
+}
 
 /* ---------------- statusbar ---------------- */
 .statusbar {

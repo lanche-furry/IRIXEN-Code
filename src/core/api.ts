@@ -14,6 +14,9 @@ import type {
 
 export interface AttachmentRef { path: string; name: string; isDir: boolean }
 
+/** Bare base64 plus the mime type the encoder produced. */
+export interface SentImage { mime: string; data: string }
+
 export const api = {
   // config
   getConfig: () => invoke<AppConfig>('get_config'),
@@ -38,11 +41,12 @@ export const api = {
   setActive: (id: string) => invoke<boolean>('agent_set_active', { id }),
   active: () => invoke<string | null>('agent_active'),
   messages: (id: string) => invoke<Message[]>('agent_messages', { id }),
-  send: (id: string, text: string, attachments: AttachmentRef[]) =>
+  send: (id: string, text: string, attachments: AttachmentRef[], images: SentImage[] = []) =>
     invoke<void>('agent_send', {
       id,
       text,
       attachments: attachments.map((a) => ({ path: a.path, name: a.name, is_dir: a.isDir })),
+      images,
     }),
   stop: (id: string) => invoke<void>('agent_stop', { id }),
   clear: (id: string) => invoke<void>('agent_clear', { id }),

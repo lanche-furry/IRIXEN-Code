@@ -4,7 +4,7 @@
 //! files, shell, git, workspace stats, providers, models, sessions, skills, MCP.
 
 use crate::agent::models::ModelInfo;
-use crate::agent::types::{Attachment, Effort, Message};
+use crate::agent::types::{Attachment, Effort, ImageInput, Message};
 use crate::agent::{AgentEngine, SessionMeta};
 use crate::config::{AppConfig, McpServerConfig, ProviderConfig, WebSource};
 use crate::git::GitFileStatus;
@@ -224,8 +224,18 @@ pub fn agent_send(
     id: String,
     text: String,
     attachments: Vec<Attachment>,
+    images: Option<Vec<ImageInput>>,
 ) -> Result<(), String> {
-    engine.inner().send(&id, &text, attachments)
+    let images = images.unwrap_or_default();
+    // 4 MB of base64 is ~3 MB of pixels: far past what a screenshot needs,
+    // and the transcript keeps every image it is given.
+    if let Some(big) = images.iter().find(|i| i.data.len() > 4_000_000) {
+        return Err(format!("图片过大（{} 字节），请先缩小再发送", big.data.len()));
+    }
+    if images.len() > 8 {
+        return Err("一次最多发送 8 张图片".into());
+    }
+    engine.inner().send(&id, &text, attachments, images)
 }
 
 #[tauri::command]

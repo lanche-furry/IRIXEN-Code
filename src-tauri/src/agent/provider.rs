@@ -168,7 +168,7 @@ fn to_openai_messages(messages: &[Message]) -> Value {
                     out.push(json!({ "role": "system", "content": text }));
                 }
             }
-            Role::User => out.push(json!({ "role": "user", "content": m.text_of() })),
+            Role::User => out.push(json!({ "role": "user", "content": openai_user_content(m) })),
             Role::Assistant => {
                 let mut msg = serde_json::Map::new();
                 msg.insert("role".into(), json!("assistant"));
@@ -204,6 +204,28 @@ fn to_openai_messages(messages: &[Message]) -> Value {
     json!(out)
 }
 
+/// OpenAI takes either a plain string or a list of typed parts. Stay with the
+/// string unless there is a picture: text-only turns keep the smaller, more
+/// widely-compatible shape (several OpenAI-compatible providers reject parts).
+fn openai_user_content(m: &Message) -> Value {
+    let text = m.text_of();
+    let images: Vec<(&str, &str)> = m.images().collect();
+    if images.is_empty() {
+        return json!(text);
+    }
+    let mut parts: Vec<Value> = Vec::new();
+    if !text.is_empty() {
+        parts.push(json!({ "type": "text", "text": text }));
+    }
+    for (mime, data) in images {
+        parts.push(json!({
+            "type": "image_url",
+            "image_url": { "url": format!("data:{mime};base64,{data}") }
+        }));
+    }
+    json!(parts)
+}
+
 /// Convert our neutral message list into Anthropic messages format.
 /// Returns (system_prompt, messages).
 fn to_anthropic_messages(messages: &[Message]) -> (String, Value) {
@@ -222,7 +244,7 @@ fn to_anthropic_messages(messages: &[Message]) -> (String, Value) {
             }
             Role::User => out.push(json!({
                 "role": "user",
-                "content": [{ "type": "text", "text": m.text_of() }]
+                "content": anthropic_user_blocks(m)
             })),
             Role::Assistant => {
                 let mut blocks: Vec<Value> = Vec::new();
@@ -266,7 +288,44 @@ fn to_anthropic_messages(messages: &[Message]) -> (String, Value) {
     (system, json!(out))
 }
 
+/// Anthropic always wants blocks; pictures ride along as base64 sources.
+fn anthropic_user_blocks(m: &Message) -> Value {
+    let text = m.text_of();
+    let images: Vec<(&str, &str)> = m.images().collect();
+    if images.is_empty() {
+        return json!([{ "type": "text", "text": text }]);
+    }
+    let mut blocks: Vec<Value> = Vec::new();
+    if !text.is_empty() {
+        blocks.push(json!({ "type": "text", "text": text }));
+    }
+    for (mime, data) in images {
+        blocks.push(json!({
+            "type": "image",
+            "source": { "type": "base64", "media_type": mime, "data": data }
+        }));
+    }
+    json!(blocks)
+}
+
 /// Convert our neutral message list into Gemini contents format.
+/// Gemini calls inline bytes `inlineData` and names the field `mimeType`.
+fn gemini_user_parts(m: &Message) -> Value {
+    let text = m.text_of();
+    let images: Vec<(&str, &str)> = m.images().collect();
+    if images.is_empty() {
+        return json!([{ "text": text }]);
+    }
+    let mut parts: Vec<Value> = Vec::new();
+    if !text.is_empty() {
+        parts.push(json!({ "text": text }));
+    }
+    for (mime, data) in images {
+        parts.push(json!({ "inlineData": { "mimeType": mime, "data": data } }));
+    }
+    json!(parts)
+}
+
 fn to_gemini_messages(messages: &[Message]) -> (Option<String>, Value) {
     let mut system: Option<String> = None;
     let mut out: Vec<Value> = Vec::new();
@@ -283,7 +342,7 @@ fn to_gemini_messages(messages: &[Message]) -> (Option<String>, Value) {
             }
             Role::User => out.push(json!({
                 "role": "user",
-                "parts": [{ "text": m.text_of() }]
+                "parts": gemini_user_parts(m)
             })),
             Role::Assistant => {
                 let mut parts: Vec<Value> = Vec::new();
@@ -1016,5 +1075,47 @@ async fn check_status(
             &body,
             url,
         )))
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent::types::ImageInput;
+
+    fn picture() -> ImageInput {
+        ImageInput { mime: "image/jpeg".into(), data: "QUJD".into() }
+    }
+
+    /// One neutral message, three wire formats that disagree about nearly
+    /// every field name. Getting one of them wrong is invisible until a model
+    /// answers as if there were no picture at all.
+    #[test]
+    fn each_protocol_wraps_an_image_its_own_way() {
+        let m = Message::user_with_images("what is this", vec![picture()]);
+
+        let openai = to_openai_messages(std::slice::from_ref(&m));
+        assert_eq!(
+            openai[0]["content"][1]["image_url"]["url"],
+            "data:image/jpeg;base64,QUJD"
+        );
+
+        let (_, anthropic) = to_anthropic_messages(std::slice::from_ref(&m));
+        assert_eq!(anthropic[0]["content"][1]["type"], "image");
+        assert_eq!(anthropic[0]["content"][1]["source"]["media_type"], "image/jpeg");
+
+        let (_, gemini) = to_gemini_messages(std::slice::from_ref(&m));
+        assert_eq!(gemini[0]["parts"][1]["inlineData"]["mimeType"], "image/jpeg");
+    }
+
+    /// Several providers implement the OpenAI schema but reject typed parts,
+    /// so a turn without pictures must keep sending a bare string.
+    #[test]
+    fn a_text_only_turn_keeps_the_plain_shape() {
+        let m = Message::user("hello");
+        assert_eq!(to_openai_messages(std::slice::from_ref(&m))[0]["content"], "hello");
+        let (_, anthropic) = to_anthropic_messages(std::slice::from_ref(&m));
+        assert_eq!(anthropic[0]["content"][0]["type"], "text");
+        let (_, gemini) = to_gemini_messages(std::slice::from_ref(&m));
+        assert_eq!(gemini[0]["parts"][0]["text"], "hello");
     }
 }

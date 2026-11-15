@@ -18,6 +18,10 @@ pub enum Role {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ContentPart {
     Text { text: String },
+    /// A picture the user pasted or dropped. `data` is bare base64 (no
+    /// `data:` prefix) so each provider can wrap it its own way; keeping one
+    /// representation in the transcript beats three protocol-specific copies.
+    Image { mime: String, data: String },
     ToolCall { id: String, name: String, arguments: String },
     ToolResult { call_id: String, name: String, output: String, is_error: bool },
 }
@@ -34,6 +38,21 @@ impl Message {
     }
     pub fn user(text: impl Into<String>) -> Self {
         Message { role: Role::User, parts: vec![ContentPart::Text { text: text.into() }] }
+    }
+    /// A user message that carries pictures as well as text. The text part
+    /// comes first: some providers read the first part as the instruction.
+    pub fn user_with_images(text: impl Into<String>, images: Vec<ImageInput>) -> Self {
+        let mut parts = vec![ContentPart::Text { text: text.into() }];
+        for img in images {
+            parts.push(ContentPart::Image { mime: img.mime, data: img.data });
+        }
+        Message { role: Role::User, parts }
+    }
+    pub fn images(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.parts.iter().filter_map(|p| match p {
+            ContentPart::Image { mime, data } => Some((mime.as_str(), data.as_str())),
+            _ => None,
+        })
     }
     pub fn assistant(text: impl Into<String>) -> Self {
         Message { role: Role::Assistant, parts: vec![ContentPart::Text { text: text.into() }] }
@@ -198,4 +217,13 @@ pub struct Attachment {
     pub path: String,
     pub name: String,
     pub is_dir: bool,
+}
+
+/// One picture on its way in: bare base64 plus the mime type its encoder
+/// produced. The composer downscales before sending; the cap in `agent_send`
+/// only catches a caller that skipped that step.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ImageInput {
+    pub mime: String,
+    pub data: String,
 }

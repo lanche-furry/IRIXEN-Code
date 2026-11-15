@@ -353,7 +353,8 @@ export interface SessionMeta {
 export interface ContentPartText { type: 'text'; text: string }
 export interface ContentPartToolCall { type: 'tool_call'; id: string; name: string; arguments: string }
 export interface ContentPartToolResult { type: 'tool_result'; call_id: string; name: string; output: string; is_error: boolean }
-export type ContentPart = ContentPartText | ContentPartToolCall | ContentPartToolResult;
+export interface ContentPartImage { type: 'image'; mime: string; data: string }
+export type ContentPart = ContentPartText | ContentPartToolCall | ContentPartToolResult | ContentPartImage;
 
 export interface Message {
   role: Role;

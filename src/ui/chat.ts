@@ -65,6 +65,17 @@ let sendBtn: HTMLButtonElement | null = null;
 
 let attachments: AttachmentRef[] = [];
 let streamingId: string | null = null;
+
+/** Pasted or dropped pictures waiting to go out. Scaled here rather than on
+ *  the Rust side: a screenshot is 4-8 MB of PNG, and the transcript keeps
+ *  every byte it is handed. */
+interface PendingImage { mime: string; data: string; url: string }
+let pendingImages: PendingImage[] = [];
+
+/** Longest edge kept. Above this the model tiles the image and it costs more
+ *  tokens for no extra legibility; 1600 is what the vision models rescale to. */
+const IMAGE_MAX_EDGE = 1600;
+const IMAGE_MAX_BYTES = 3_500_000;
 let seq = 0;
 let unlisten: (() => void) | null = null;
 let stick = true;
@@ -101,6 +112,24 @@ export function mountChat(container: HTMLElement) {
       }
     },
   }) as HTMLTextAreaElement;
+
+  // Screenshots arrive through the clipboard and nowhere else: no file on disk
+  // to point at, so the bytes have to be carried inline.
+  inputEl.addEventListener('paste', (e) => {
+    const dt = (e as ClipboardEvent).clipboardData;
+    if (!dt || !hasImage(dt.files)) return;
+    e.preventDefault();
+    void addImages(dt.files);
+  });
+  chat.addEventListener('dragover', (e) => {
+    if (hasImage((e as DragEvent).dataTransfer?.files)) e.preventDefault();
+  });
+  chat.addEventListener('drop', (e) => {
+    const dt = (e as DragEvent).dataTransfer;
+    if (!dt || !hasImage(dt.files)) return;
+    e.preventDefault();
+    void addImages(dt.files);
+  });
 
   sendBtn = h(
     'button',
@@ -249,9 +278,78 @@ function renderToolbar() {
   }
 }
 
+function hasImage(files: FileList | null | undefined): boolean {
+  return Boolean(files && Array.from(files).some((f) => f.type.startsWith('image/')));
+}
+
+/** Downscale to a tile-friendly size and re-encode as JPEG. PNG screenshots
+ *  may carry transparency, which JPEG cannot: flatten onto white first, or the
+ *  transparent areas read as a broken black image in the transcript. */
+async function scaledImage(file: File): Promise<PendingImage | null> {
+  try {
+    const bmp = await createImageBitmap(file);
+    const scale = Math.min(1, IMAGE_MAX_EDGE / Math.max(bmp.width, bmp.height));
+    const w = Math.max(1, Math.round(bmp.width * scale));
+    const hh = Math.max(1, Math.round(bmp.height * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = hh;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, w, hh);
+    ctx.drawImage(bmp, 0, 0, w, hh);
+    bmp.close?.();
+    let quality = 0.9;
+    let url = canvas.toDataURL('image/jpeg', quality);
+    while (url.length > IMAGE_MAX_BYTES && quality > 0.5) {
+      quality -= 0.1;
+      url = canvas.toDataURL('image/jpeg', quality);
+    }
+    return { mime: 'image/jpeg', data: url.slice(url.indexOf(',') + 1), url };
+  } catch {
+    return null;
+  }
+}
+
+async function addImages(files: FileList | null | undefined) {
+  const picked = Array.from(files || []).filter((f) => f.type.startsWith('image/'));
+  for (const file of picked) {
+    if (pendingImages.length >= 8) {
+      toast(t('chat.imageLimit'), 'err');
+      break;
+    }
+    const img = await scaledImage(file);
+    if (img) pendingImages.push(img);
+    else toast(t('chat.imageFailed'), 'err');
+  }
+  renderAttachments();
+  autoGrow();
+}
+
 function renderAttachments() {
   if (!attachRowEl) return;
   clear(attachRowEl);
+  for (const img of pendingImages) {
+    const chip = h(
+      'span',
+      { class: 'attach-chip image' },
+      h('img', { class: 'attach-thumb', src: img.url, alt: '' }),
+      h(
+        'button',
+        {
+          title: t('common.delete'),
+          onClick: () => {
+            pendingImages = pendingImages.filter((x) => x !== img);
+            renderAttachments();
+            autoGrow();
+          },
+        },
+        icon('close', 10),
+      ),
+    );
+    attachRowEl.append(chip);
+  }
   for (const a of attachments) {
     const chip = h(
       'span',
@@ -272,7 +370,7 @@ function renderAttachments() {
     );
     attachRowEl.append(chip);
   }
-  attachRowEl.style.display = attachments.length ? 'flex' : 'none';
+  attachRowEl.style.display = attachments.length || pendingImages.length ? 'flex' : 'none';
 }
 
 function renderSendState() {
@@ -298,7 +396,8 @@ function renderSendState() {
 }
 
 function canSend(): boolean {
-  return Boolean((inputEl?.value.trim() || attachments.length > 0) && app.sessionId);
+  const has = inputEl?.value.trim() || attachments.length > 0 || pendingImages.length > 0;
+  return Boolean(has && app.sessionId);
 }
 
 function autoGrow() {
@@ -750,11 +849,16 @@ export async function send() {
   if (!app.sessionId) await newSession();
   if (!app.sessionId) return;
 
+  const sentImages = pendingImages.map((i) => ({ mime: i.mime, data: i.data }));
+  const noteParts = [
+    ...attachments.map((a) => a.name),
+    ...(pendingImages.length ? [t('chat.images', { n: String(pendingImages.length) })] : []),
+  ];
   const userItem: ChatItem = {
     id: nextId('u'),
     role: 'user',
     text,
-    note: attachments.length ? attachments.map((a) => a.name).join('  ·  ') : undefined,
+    note: noteParts.length ? noteParts.join('  ·  ') : undefined,
   };
   app.chat.push(userItem);
   if (logEl) {
@@ -764,6 +868,7 @@ export async function send() {
   }
   const sent = attachments.slice();
   attachments = [];
+  pendingImages = [];
   renderAttachments();
   inputEl.value = '';
   autoGrow();
@@ -772,7 +877,7 @@ export async function send() {
   setBusy(true);
 
   try {
-    await api.send(app.sessionId, text, sent);
+    await api.send(app.sessionId, text, sent, sentImages);
   } catch (e) {
     setBusy(false);
     pushNote(errText(e), true);
@@ -1053,6 +1158,10 @@ export async function newSession() {
     app.sessionId = meta.id;
     app.chat = [];
     app.contextTokens = 0;
+    // A picture pasted for the previous conversation must not silently ride
+    // along into the next one.
+    pendingImages = [];
+    renderAttachments();
     // The agent picks the provider/model for a new session; the composer has to
     // adopt them, otherwise the pickers show one thing and the request uses
     // another. Empty model → `ensureSelection` fills in the provider's first.
@@ -1082,6 +1191,8 @@ export async function clearSession() {
 /** Load a session's persisted transcript into the panel. */
 export async function loadSession(id: string) {
   app.sessionId = id;
+  pendingImages = [];
+  renderAttachments();
   // Tell the engine which session is current, so a restart reopens this one
   // instead of whatever was created last.
   void api.setActive(id).catch(() => undefined);
@@ -1117,10 +1228,15 @@ function toChatItems(messages: Message[]): ChatItem[] {
         .filter((p) => p.type === 'text')
         .map((p) => (p as any).text as string)
         .join('\n');
+      // The pixels are not re-rendered here — only the fact that they were
+      // part of the message. Rehydrating base64 into thumbnails would make
+      // scrolling a long session cost megabytes of decode.
+      const images = m.parts.filter((p) => p.type === 'image').length;
       out.push({
         id: nextId('u'),
         role: 'user',
         text: stripAttachments(text),
+        note: images ? t('chat.images', { n: String(images) }) : undefined,
       });
       continue;
     }

@@ -42,6 +42,10 @@ impl Compressor {
                     ContentPart::ToolResult { output, .. } => {
                         total += (output.chars().count() as u64) / 4 + 2
                     }
+                    // Base64 length says nothing about how many tokens an image
+                    // costs: providers rescale it to a fixed tile budget, so a
+                    // flat estimate is closer than counting characters.
+                    ContentPart::Image { .. } => total += 1_000,
                 }
             }
         }

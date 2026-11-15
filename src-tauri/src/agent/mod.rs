@@ -541,6 +541,7 @@ impl AgentEngine {
         session_id: &str,
         text: &str,
         attachments: Vec<Attachment>,
+        images: Vec<ImageInput>,
     ) -> Result<(), String> {
         {
             let map = lock(&self.sessions);
@@ -562,7 +563,7 @@ impl AgentEngine {
             // for the bookkeeping below.
             engine
                 .clone()
-                .run_turn(sid.clone(), prompt, attachments, flag)
+                .run_turn(sid.clone(), prompt, attachments, images, flag)
                 .await;
             lock(&engine.busy).insert(sid.clone(), false);
             lock(&engine.stops).remove(&sid);
@@ -578,6 +579,7 @@ impl AgentEngine {
         session_id: String,
         prompt: String,
         attachments: Vec<Attachment>,
+        images: Vec<ImageInput>,
         stop: Arc<AtomicBool>,
     ) {
         let (provider_id, model, effort) = {
@@ -663,7 +665,7 @@ impl AgentEngine {
                 if s.messages.is_empty() {
                     s.title = crate::util::one_line(&prompt, 32);
                 }
-                s.messages.push(Message::user(body));
+                s.messages.push(Message::user_with_images(body, images.clone()));
                 s.updated_at = now_ms();
             }
         }
