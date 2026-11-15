@@ -340,6 +340,19 @@ export type AgentEvent =
   | { kind: 'done'; session: string; text: string }
   | { kind: 'error'; session: string; text: string };
 
+/** Where a finished download landed, plus whether its hash was checked. */
+export interface Downloaded {
+  path: string;
+  asset: string;
+  verified: boolean;
+}
+
+export interface DownloadProgress {
+  received: number;
+  total: number;
+  asset: string;
+}
+
 export interface SessionMeta {
   id: string;
   provider_id: string;

@@ -1317,6 +1317,27 @@ pub async fn app_check_update(
     crate::update::check(&proxy, force.unwrap_or(false)).await
 }
 
+/// Fetch this platform's installer, hash it, and report where it landed.
+/// Progress arrives on `update:progress` while it runs.
+#[tauri::command]
+pub async fn app_download_update(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<crate::update::Downloaded, String> {
+    let proxy = crate::util::lock(&state.config).proxy.clone();
+    crate::update::download(&proxy, &app).await
+}
+
+/// Start the downloaded installer and quit, so it can replace this exe.
+#[tauri::command]
+pub fn app_apply_update(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    crate::update::apply(&path)?;
+    // Nothing to clean up and nothing to confirm: the installer owns the
+    // process from here, and holding the exe open would block its own update.
+    app.exit(0);
+    Ok(())
+}
+
 #[tauri::command]
 pub fn extensions_theme(id: String, label: String) -> Result<serde_json::Value, String> {
     crate::extensions::theme_colors(&id, &label)

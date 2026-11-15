@@ -221,6 +221,18 @@ jobs:
           TAG: ${{ inputs.tag || github.ref_name }}
         run: node scripts/notes-check.mjs "$TAG" --allow-missing
 
+      # The app's updater will not run an installer it cannot hash, so the
+      # checksum file it looks for is generated here from the exact bytes that
+      # are about to be uploaded. `sha256sum` writes "<hash>  <name>", which is
+      # the format src-tauri/src/update.rs parses.
+      - name: Write checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum * > checksums.txt
+          cat checksums.txt
+
       # Re-running for a tag that already has a release replaces the assets
       # instead of failing: signing is added after the fact, and a rebuild is
       # the only way to get signed binaries onto an existing release.

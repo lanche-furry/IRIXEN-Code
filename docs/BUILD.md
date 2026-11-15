@@ -220,6 +220,10 @@ git tag Beta0.2 && git push origin Beta0.2
 
 推 tag 会触发 `.github/workflows/release.yml`：Windows 打 NSIS、Linux 打 deb + AppImage，然后发布为 **latest 频道**（`--latest`、非 prerelease），所以应用内「检查更新」会把它当作最新版。发布说明取自 `docs/release-notes/<tag>.md`，该文件不存在则用 GitHub 自动生成的版本。
 
+发布时还会把 `sha256sum *` 的结果写成 `checksums.txt` 一起上传。**这个文件是应用内一键更新的前提**：关于页的「下载并安装」会先取它，用里面登记的 SHA256 校验下载到的安装包，不匹配就删掉文件并报错，不给你「要不要继续」的选项。`nightly` 频道同样生成。
+
+应用内更新的分工是刻意的：`update.rs` 的 `check` 只读元数据（便宜，进关于页就能跑）；`download` 取本平台安装包并校验；`apply` 启动安装程序后立刻退出——Windows 的 exe 换不掉自己，所以安装永远是一个独立进程在干，应用不会假装能自替换。Linux 只装 AppImage（deb 需要 root）。改了 `checksums.txt` 的格式就要同步改 `parse_checksums()`，那里有单测。
+
 **发布说明用 Beta 0.1 的排版：一份文档，每行都带两种语言**，不做「中文半篇 + 英文半篇」的分段：
 
 ```markdown

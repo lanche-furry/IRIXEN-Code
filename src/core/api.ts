@@ -9,6 +9,7 @@ import type {
   NodeInfo, ProviderConfig, RuntimeCommand, SearchHit, Skill, SnippetRow, StatusItem,
   UsageReport, WorkspaceStats, Attachment, SessionMeta, ProbeReport,
   WebSource, WebTestRow, WebSessionInfo, RunnerOption, RunInfo, WebviewPanel,
+  Downloaded, DownloadProgress,
   TermShell, TermInfo, TreeItemRow, PreviewProbe,
 } from '../types';
 
@@ -24,6 +25,10 @@ export const api = {
   configReset: () => invoke<AppConfig>('config_reset'),
   appInfo: () => invoke<AppInfo>('app_info'),
   appCheckUpdate: (force = false) => invoke<AppUpdate>('app_check_update', { force }),
+  downloadUpdate: () => invoke<Downloaded>('app_download_update'),
+  // Returns only after the installer is running; the app is gone by the time
+  // the promise settles, so callers must not expect to do anything after it.
+  applyUpdate: (path: string) => invoke<void>('app_apply_update', { path }),
   setWorkspace: (path: string) => invoke<string>('set_workspace', { path }),
 
   // providers / models
@@ -255,6 +260,10 @@ export function onExtHostEvent<T>(name: string, cb: (payload: T) => void): Promi
 /** Subscribe to the agent's normalized event stream. Returns an unlisten fn. */
 export function onAgentEvent(cb: (ev: AgentEvent) => void): Promise<() => void> {
   return listen<AgentEvent>('agent://event', (e) => cb(e.payload));
+}
+
+export function onUpdateProgress(cb: (p: DownloadProgress) => void): Promise<() => void> {
+  return listen<DownloadProgress>('update:progress', (e) => cb(e.payload));
 }
 
 export function errText(e: unknown): string {

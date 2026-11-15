@@ -3,7 +3,7 @@
 import { h, clear, fmtBytes } from '../core/dom';
 import { icon } from './icons';
 import { t, setLang, LANGS } from '../core/i18n';
-import { api, errText } from '../core/api';
+import { api, errText, onUpdateProgress } from '../core/api';
 import { app, emit, on } from '../core/state';
 import { toast, confirmDialog, promptDialog, errorBox } from './toast';
 import { applyTheme, customVarDefaults, parseCustomColors } from './theme';
@@ -1069,11 +1069,22 @@ function renderUpdateBox(box: HTMLElement) {
     ? h('pre', { class: 'about-update-notes' }, d.notes)
     : null;
 
+  // One click fetches the installer for this platform, checks its hash and
+  // hands over. The asset buttons stay as the manual route — they open the
+  // release page, which is what an offline or corporate-network user needs.
+  const installBtn = h('button', {
+    class: 'btn primary',
+    title: t('about.install'),
+    onClick: () => void startInstall(box, installBtn),
+  }, icon('download', 12), t('about.install')) as HTMLButtonElement;
+
   box.append(h('div', { class: 'about-update-card new' },
     h('div', { class: 'about-update-head' },
       icon('download', 14),
       h('b', null, t('about.updateAvailable', { v: d.latest || d.latest_semver })),
       d.prerelease ? h('span', { class: 'ext-pill src' }, 'pre-release') : null,
+      h('div', { class: 'spacer', style: { flex: '1' } }),
+      installBtn,
     ),
     d.name && d.name !== d.latest ? h('div', { class: 'about-update-name' }, d.name) : null,
     h('div', { class: 'about-update-time' },
@@ -1082,6 +1093,39 @@ function renderUpdateBox(box: HTMLElement) {
     notes,
     assets,
   ));
+}
+
+/** Download, verify, hand over. Each step says what it is doing — a 90 MB
+ *  download with no feedback reads as a hang, and the app is about to quit, so
+ *  the last thing on screen has to explain why. */
+async function startInstall(box: HTMLElement, btn: HTMLButtonElement) {
+  if (!window.confirm(t('about.installConfirm'))) return;
+  btn.disabled = true;
+  const line = h('div', { class: 'about-update-msg' });
+  const say = (glyph: 'download' | 'check' | 'alert', text: string) => {
+    clear(line);
+    line.append(icon(glyph, 12), h('span', null, text));
+  };
+  say('download', t('about.downloading', { p: '0' }));
+  box.append(line);
+
+  let stop: (() => void) | null = null;
+  try {
+    stop = await onUpdateProgress((p) => {
+      const pct = p.total ? Math.min(100, Math.round((p.received / p.total) * 100)) : 0;
+      say('download', t('about.downloading', { p: String(pct) }));
+    });
+    const got = await api.downloadUpdate();
+    stop();
+    stop = null;
+    say(got.verified ? 'check' : 'alert', t(got.verified ? 'about.verified' : 'about.unverified'));
+    await new Promise((r) => setTimeout(r, 800));
+    await api.applyUpdate(got.path);
+  } catch (e) {
+    stop?.();
+    say('alert', errText(e));
+    btn.disabled = false;
+  }
 }
 
 /* ------------------------------------------------------------------- net */

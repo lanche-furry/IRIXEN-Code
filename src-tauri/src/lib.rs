@@ -187,6 +187,8 @@ pub fn run() {
             commands::config_reset,
             commands::app_info,
             commands::app_check_update,
+            commands::app_download_update,
+            commands::app_apply_update,
             commands::set_workspace,
             commands::provider_upsert,
             commands::provider_delete,

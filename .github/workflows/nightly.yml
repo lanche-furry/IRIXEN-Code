@@ -208,6 +208,16 @@ jobs:
           } > nightly-notes.md
           ls -l dist
 
+      # Same reason as release.yml: the updater hashes what it downloads, so a
+      # nightly carries the file it looks for too.
+      - name: Write checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum * > checksums.txt
+          cat checksums.txt
+
       - name: Publish rolling nightly release
         env:
           GH_TOKEN: ${{ github.token }}

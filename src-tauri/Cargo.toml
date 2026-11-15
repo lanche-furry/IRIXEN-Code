@@ -45,6 +45,9 @@ base64 = "0.22"
 # install). UTF-8 is the normal path; this is only the fallback that stops a
 # whole command's output from turning into `?`.
 encoding_rs = "0.8"
+# The updater refuses to run an installer it cannot hash. `sha2` is the one
+# dependency that makes "downloaded over HTTPS" into "downloaded and checked".
+sha2 = "0.10"
 
 [profile.release]
 opt-level = "s"

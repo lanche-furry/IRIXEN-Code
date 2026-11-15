@@ -1,14 +1,20 @@
 //! GitHub Releases is the single source of truth for IRIXEN Code versions.
 //!
-//! This module only *reads* the release metadata. It never downloads or applies
-//! an update: a running Windows exe cannot replace itself, and the release
-//! notes deserve to be read before someone installs something. The About page
-//! shows the result and hands the user off to the release page.
+//! Two halves, deliberately separate. `check` only *reads* metadata and is
+//! cheap enough to run on every visit to the About page. `download` fetches the
+//! installer for this platform and hashes it before trusting it; `apply` starts
+//! it and gets out of the way. A Windows exe cannot replace itself, so the
+//! installer always runs as its own process — the app quits first and never
+//! pretends it can swap its own binary.
 
+use futures_util::StreamExt;
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use std::cmp::Ordering;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use tauri::{AppHandle, Emitter};
+use tokio::io::AsyncWriteExt;
 
 use crate::net;
 
@@ -264,6 +270,207 @@ fn from_release(v: &serde_json::Value, current: &str) -> AppUpdate {
 }
 
 // ---------------------------------------------------------------------------
+// download + apply
+// ---------------------------------------------------------------------------
+
+/// Download progress, throttled to a few events per second: a 90 MB AppImage
+/// would otherwise push thousands of messages into the webview.
+#[derive(Serialize, Clone, Default)]
+pub struct DownloadProgress {
+    pub received: u64,
+    pub total: u64,
+    pub asset: String,
+}
+
+#[derive(Serialize, Clone, Default)]
+pub struct Downloaded {
+    pub path: String,
+    pub asset: String,
+    /// True when a published checksum was matched; false only for an older
+    /// release that shipped no `checksums.txt` at all.
+    pub verified: bool,
+}
+
+/// The installer this build can actually run.
+///
+/// Windows publishes NSIS (`*-setup.exe`) only. Linux publishes an AppImage and
+/// a deb: the deb needs root, so the AppImage is the one thing that can be
+/// replaced by the same user who is running the app.
+fn installer_asset(assets: &[UpdateAsset]) -> Option<&UpdateAsset> {
+    #[cfg(windows)]
+    {
+        return assets
+            .iter()
+            .find(|a| a.name.to_ascii_lowercase().ends_with(".exe") && a.name.to_ascii_lowercase().contains("setup"));
+    }
+    #[cfg(target_os = "linux")]
+    {
+        return assets.iter().find(|a| a.name.ends_with(".AppImage"));
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
+    {
+        let _ = assets;
+        None
+    }
+}
+
+/// `checksums.txt` is `sha256  name` per line (the format `sha256sum` emits,
+/// with an optional `*` before the name for binary mode).
+fn parse_checksums(text: &str, file: &str) -> Option<String> {
+    for line in text.lines() {
+        let mut parts = line.split_whitespace();
+        let hash = parts.next()?;
+        let name = parts.next()?.trim_start_matches('*');
+        if name == file && hash.len() == 64 && hash.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Some(hash.to_ascii_lowercase());
+        }
+    }
+    None
+}
+
+fn hex(bytes: impl AsRef<[u8]>) -> String {
+    use std::fmt::Write as _;
+    bytes.as_ref().iter().fold(String::new(), |mut acc, b| {
+        let _ = write!(acc, "{b:02x}");
+        acc
+    })
+}
+
+async fn fetch_text(client: &reqwest::Client, url: &str, proxy: &str) -> Result<String, String> {
+    let resp = client
+        .get(url)
+        .timeout(REQUEST_TIMEOUT)
+        .send()
+        .await
+        .map_err(|e| net::explain_transport(&e, url, &net::proxy_label(proxy)))?;
+    let status = resp.status();
+    let body = resp.text().await.map_err(|e| format!("读取响应失败：{e}"))?;
+    if !status.is_success() {
+        return Err(net::explain_status(status.as_u16(), &body, url));
+    }
+    Ok(body)
+}
+
+/// Fetch the installer for this platform into a temp file and hash it.
+///
+/// Both checks are load-bearing: the size comes from the release metadata, the
+/// hash from `checksums.txt` when the release has one. A hash that disagrees
+/// deletes the download rather than offering the user a choice — there is no
+/// good reason to run a binary whose published hash it does not match.
+pub async fn download(proxy: &str, app: &AppHandle) -> Result<Downloaded, String> {
+    let latest = check(proxy, false).await?;
+    if !latest.has_update {
+        return Err("已经是最新版本".into());
+    }
+    let asset = installer_asset(&latest.assets)
+        .ok_or("这个版本没有适用于当前平台的安装包，请到发布页手动下载")?
+        .clone();
+    let client = net::build_client(proxy);
+
+    let expected = match latest
+        .assets
+        .iter()
+        .find(|a| a.name.eq_ignore_ascii_case("checksums.txt"))
+    {
+        Some(list) => {
+            let text = fetch_text(&client, &list.download_url, proxy).await?;
+            parse_checksums(&text, &asset.name)
+        }
+        None => None,
+    };
+
+    let dir = std::env::temp_dir().join("irixen-update");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("无法创建下载目录：{e}"))?;
+    let dest = dir.join(&asset.name);
+
+    let resp = client
+        .get(&asset.download_url)
+        .timeout(Duration::from_secs(60))
+        .send()
+        .await
+        .map_err(|e| net::explain_transport(&e, &asset.download_url, &net::proxy_label(proxy)))?;
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(net::explain_status(status.as_u16(), "", &asset.download_url));
+    }
+    let total = resp.content_length().unwrap_or(asset.size);
+
+    let mut file = tokio::fs::File::create(&dest)
+        .await
+        .map_err(|e| format!("无法写入 {}：{e}", dest.display()))?;
+    let mut hasher = Sha256::new();
+    let mut received: u64 = 0;
+    let mut last = Instant::now();
+    let mut stream = resp.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let bytes = chunk.map_err(|e| format!("下载中断：{e}"))?;
+        hasher.update(&bytes);
+        file.write_all(&bytes)
+            .await
+            .map_err(|e| format!("写入安装包失败：{e}"))?;
+        received += bytes.len() as u64;
+        if last.elapsed() >= Duration::from_millis(200) {
+            last = Instant::now();
+            let _ = app.emit(
+                "update:progress",
+                DownloadProgress { received, total, asset: asset.name.clone() },
+            );
+        }
+    }
+    file.flush().await.map_err(|e| format!("写入安装包失败：{e}"))?;
+    drop(file);
+
+    let actual = hex(hasher.finalize());
+    let mut verified = false;
+    if let Some(want) = expected {
+        if want != actual {
+            let _ = std::fs::remove_file(&dest);
+            return Err(format!(
+                "安装包校验失败：公布的 SHA256 是 {want}，下载到的是 {actual}。文件已删除。"
+            ));
+        }
+        verified = true;
+    }
+    if asset.size > 0 && received != asset.size {
+        let _ = std::fs::remove_file(&dest);
+        return Err(format!(
+            "下载不完整：应为 {} 字节，实际 {received} 字节。文件已删除。",
+            asset.size
+        ));
+    }
+
+    Ok(Downloaded {
+        path: dest.to_string_lossy().to_string(),
+        asset: asset.name.clone(),
+        verified,
+    })
+}
+
+/// Start the installer as its own process. The caller quits right after: the
+/// file it is running from is about to be replaced.
+pub fn apply(path: &str) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        // No `/S`: a silent install leaves the user staring at a window that
+        // vanished, with no idea whether anything happened.
+        std::process::Command::new(path)
+            .spawn()
+            .map_err(|e| format!("无法启动安装程序：{e}"))?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let p = std::path::Path::new(path);
+        std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o755))
+            .map_err(|e| format!("无法设置为可执行：{e}"))?;
+        std::process::Command::new(p)
+            .spawn()
+            .map_err(|e| format!("无法启动安装包：{e}"))?;
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // semver
 // ---------------------------------------------------------------------------
 
@@ -374,6 +581,20 @@ mod tests {
 
     /// The release you are running is never an update to itself, however the
     /// tag happens to sort against the packaged semver.
+    /// `checksums.txt` lists every asset; picking the wrong line would verify
+    /// the installer against some other file's hash and refuse to install.
+    #[test]
+    fn a_checksum_is_matched_by_file_name() {
+        let a = "a".repeat(64);
+        let b = "b".repeat(64);
+        let text = format!("{a}  IRIXEN.Code_x64-setup.exe\n{b}  *other.AppImage\n");
+        assert_eq!(parse_checksums(&text, "IRIXEN.Code_x64-setup.exe"), Some(a));
+        assert_eq!(parse_checksums(&text, "other.AppImage"), Some(b));
+        assert_eq!(parse_checksums(&text, "absent.exe"), None);
+        // A malformed line must not pass as a hash.
+        assert_eq!(parse_checksums("deadbeef  x.exe", "x.exe"), None);
+    }
+
     #[test]
     fn the_running_release_is_not_its_own_update() {
         assert!(is_current_label("Beta0.2", "Beta 0.2"));
