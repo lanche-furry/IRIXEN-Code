@@ -53,23 +53,47 @@ if (!semverRe.test(next)) {
   console.error('  expected e.g. 0.1.0, 0.2.0-beta.1, 1.0.0-rc.2');
   process.exit(1);
 }
-const labelAt = args.indexOf('--label');
-const label = labelAt >= 0 ? args[labelAt + 1] : null;
-if (labelAt >= 0 && !label) {
-  console.error('[irixen] --label needs a value, e.g. --label "Beta 0.2"');
-  process.exit(1);
+// npm strips quotes before handing argv to the script, so `--label "Beta 0.2"`
+// arrives as three separate words. Everything after --label up to the next
+// flag belongs to the label; `--label=Beta 0.2` is accepted too.
+function readLabel(argv) {
+  const inline = argv.find((a) => a.startsWith('--label='));
+  if (inline) return inline.slice('--label='.length).trim();
+  const at = argv.indexOf('--label');
+  if (at < 0) return null;
+  const words = [];
+  for (const a of argv.slice(at + 1)) {
+    if (a.startsWith('-')) break;
+    words.push(a);
+  }
+  return words.join(' ').trim();
 }
 
-const writeJson = (p, mutate) => {
+const label = readLabel(args);
+if (args.includes('--label') || args.some((a) => a.startsWith('--label='))) {
+  if (!label) {
+    console.error('[irixen] --label needs a value, e.g. --label "Beta 0.2"');
+    process.exit(1);
+  }
+}
+
+// Replace the version in place instead of re-serialising: JSON.stringify would
+// expand every inline array in tauri.conf.json and bury the real change in
+// formatting noise.
+const versionField = /("version"\s*:\s*")[^"]*(")/;
+
+const writeJsonVersion = (p) => {
   const raw = read(p);
-  const data = JSON.parse(raw);
-  mutate(data);
-  const eol = raw.includes('\r\n') ? '\r\n' : '\n';
-  writeFileSync(p, JSON.stringify(data, null, 2).replace(/\n/g, eol) + eol);
+  if (!versionField.test(raw)) {
+    console.error(`[irixen] no "version" field found in ${p}`);
+    process.exit(1);
+  }
+  // Bumping to the version that is already there is a no-op, not an error.
+  writeFileSync(p, raw.replace(versionField, `$1${next}$2`));
 };
 
-writeJson(files.pkg, (d) => { d.version = next; });
-writeJson(files.conf, (d) => { d.version = next; });
+writeJsonVersion(files.pkg);
+writeJsonVersion(files.conf);
 
 let cargo = read(files.cargo);
 cargo = cargo.replace(/^version\s*=\s*"[^"]+"/m, `version = "${next}"`);
@@ -99,9 +123,11 @@ console.log(`[irixen] version set to ${next}${label ? ` (label: ${label})` : ''}
 console.log('  package.json / tauri.conf.json / Cargo.toml / Cargo.lock');
 console.log('');
 const releaseTag = (label ?? next).replace(/\s+/g, '');
-console.log('Next steps for a GitHub-managed release:');
-console.log('  1. npm run build && npm run app:release');
+console.log('Next steps:');
+console.log('  1. commit the bump (manifests + src-tauri/src/update.rs label)');
 console.log(`  2. git tag ${releaseTag} && git push origin ${releaseTag}`);
-console.log('  3. Create a GitHub Release for that tag and attach the installer / exe.');
-console.log('     Tags use the product label with no leading "v" and no spaces (e.g. Beta0.2).');
-console.log('     The About page reads /releases/latest and compares its tag with this semver.');
+console.log('     pushing the tag runs .github/workflows/release.yml: it builds');
+console.log('     Windows and Linux and publishes the release on the latest channel.');
+console.log('  3. notes come from docs/release-notes/<tag>.md when that file exists,');
+console.log('     otherwise GitHub generates them from the commit range.');
+console.log(`     Tags are the product label with no leading "v" and no spaces (${releaseTag}).`);
