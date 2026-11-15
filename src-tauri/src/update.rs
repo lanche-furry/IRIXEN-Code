@@ -190,6 +190,23 @@ fn is_version_tag(tag: &str) -> bool {
     head.bytes().any(|b| b.is_ascii_digit())
 }
 
+/// Release tags repeat the product label: `Beta 0.2` is published as `Beta0.2`.
+///
+/// That label carries no prerelease suffix, so ordering the tag against the
+/// packaged `0.2.0-beta.1` ranks it *above* the running build and the About page
+/// would offer every user an "update" to the release they already installed.
+/// Compare labels instead of versions for the exact-match case.
+fn is_current_label(tag: &str, label: &str) -> bool {
+    fn norm(s: &str) -> String {
+        s.chars()
+            .filter(|c| !c.is_whitespace())
+            .collect::<String>()
+            .to_lowercase()
+    }
+    let tag = norm(tag.trim().trim_start_matches(['v', 'V']));
+    !tag.is_empty() && tag == norm(label)
+}
+
 fn str_field(v: &serde_json::Value, key: &str) -> String {
     v.get(key)
         .and_then(|x| x.as_str())
@@ -230,7 +247,8 @@ fn from_release(v: &serde_json::Value, current: &str) -> AppUpdate {
     AppUpdate {
         current: DISPLAY_VERSION.to_string(),
         current_semver: current.to_string(),
-        has_update: compare_semver(&latest_semver, current) == Ordering::Greater,
+        has_update: !is_current_label(&tag, DISPLAY_VERSION)
+            && compare_semver(&latest_semver, current) == Ordering::Greater,
         latest: tag,
         latest_semver,
         name: str_field(v, "name"),
@@ -352,5 +370,17 @@ mod tests {
     fn product_label_tags_order_by_their_numbers() {
         assert_eq!(compare_semver("Beta0.2", "Beta0.1"), Ordering::Greater);
         assert_eq!(compare_semver("Beta0.2", "0.1.0-beta.1"), Ordering::Greater);
+    }
+
+    /// The release you are running is never an update to itself, however the
+    /// tag happens to sort against the packaged semver.
+    #[test]
+    fn the_running_release_is_not_its_own_update() {
+        assert!(is_current_label("Beta0.2", "Beta 0.2"));
+        assert!(is_current_label("beta0.2", "Beta 0.2"));
+        assert!(is_current_label("vBeta0.2", "Beta 0.2"));
+        assert!(!is_current_label("Beta0.3", "Beta 0.2"));
+        assert!(!is_current_label("nightly", "Beta 0.2"));
+        assert_eq!(compare_semver("Beta0.2", "0.2.0-beta.1"), Ordering::Greater);
     }
 }
