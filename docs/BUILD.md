@@ -151,10 +151,12 @@ IRIXEN_HOME="E:/irixen-build/_probe-home" \
 
 ### 安装包与残留配置
 
-`src-tauri/installer.nsh` 通过 `bundle.windows.nsis.installerHooks` 挂进 NSIS：
+`src-tauri/installer.nsh` 通过 `bundle.windows.nsis.installerHooks` 挂进 NSIS。**安装器不碰 `%APPDATA%`**——这一步交给应用自己做：
 
-- **全新安装**（`$UpdateMode <> 1`）：把旧的 `config.json` 备份成 `config.json.preinstall` 后删除，保证向导会跑；覆盖升级不动任何设置。
+- **全新安装**（`$UpdateMode <> 1` 且 `$INSTDIR` 里没有 exe）：安装器只在**自己的安装目录**里写一个空的 `first-run.marker`。应用启动时（`config::adopt_fresh_install`）消费它：把 `config.json` 备份成 `config.json.preinstall`、删掉活的配置与 `model-cache.json`，向导于是会跑。覆盖升级不写标记，设置原样保留。
 - **卸载且勾选"删除应用数据"**：连 `%APPDATA%\IRIXEN Code`（真实配置目录）和 `%LOCALAPPDATA%\com.irixen.code`（WebView2 缓存）一起删。模板自带的清理只认 bundle id，删不到 `IRIXEN Code` 这个目录。
+
+为什么拆开：安装器在 `%APPDATA%` 里复制/删除别的目录的配置文件，是通用杀软启发式眼里的"劫持者"行为——Avira 把带签名的 Beta 0.2 安装包报成 `TR/Hijacker.Gen`（28 引擎里 1 家），Beta 0.1 也是同一个家族名。应用管理自己的档案则平平无奇。
 
 已经装坏的机器不必重装：设置 → 关于 → 维护 → **恢复默认设置**（`config_reset`，旧文件备份成 `config.json.bak-<时间戳>` 后重载窗口，向导会重新出现），或调色板里的 **重新运行首次启动设置**。
 

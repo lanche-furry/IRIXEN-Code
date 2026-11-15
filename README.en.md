@@ -157,6 +157,7 @@ docs/                  Architecture, build, skill development
 - [Architecture](docs/ARCHITECTURE.md)
 - [Build & Toolchain](docs/BUILD.md)
 - [Skill Development](docs/SKILLS.md)
+- [Antivirus false positives](docs/antivirus.md)
 - [Contributing](CONTRIBUTING.md)
 
 ## License

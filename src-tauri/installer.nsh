@@ -8,23 +8,33 @@
 ; `onboarding_completed` is already true, and the first-run setup never appears
 ; on what looks like a fresh install.
 ;
-; Fresh install into a directory that has no IRIXEN Code yet ($INSTDIR holds no
-; exe when PREINSTALL runs) — the profile on disk can only be residue from an
-; earlier version, a local test run or a leftover uninstall, and it would mark
-; setup as done. Keep it as config.json.preinstall, then drop it so the wizard
-; runs. A reinstall over an existing copy keeps every setting.
+; The installer no longer touches %APPDATA% itself. It used to copy the old
+; config aside and delete it, which is textbook "hijacker" behaviour as far as
+; generic antivirus heuristics go: Avira flagged the signed Beta 0.2 installer
+; as TR/Hijacker.Gen with 27 of 28 engines clean, and the same family name had
+; already hit Beta 0.1. So the work is split:
+;
+;   installer — on a fresh install only (no exe in $INSTDIR, not an update),
+;               drop an empty first-run.marker next to its own binary. Writing
+;               to its own install directory is what an installer is for.
+;   app       — on startup, consume the marker and archive the profile itself:
+;               config.json becomes config.json.preinstall, the live copy and
+;               the model cache are removed, so the wizard runs. See
+;               config::adopt_fresh_install.
+;
+; A reinstall over an existing copy writes no marker and keeps every setting.
 ;
 ; Uninstall with "delete app data" checked: remove the real profile directory
 ; and the WebView2 cache ($LOCALAPPDATA\com.irixen.code) so the next install
-; really is a fresh one.
+; really is a fresh one. That stays here — the user opts into it, and it removes
+; this app's own data rather than another application's.
 
 !macro NSIS_HOOK_PREINSTALL
   ${If} $UpdateMode <> 1
     IfFileExists "$INSTDIR\${MAINBINARYNAME}.exe" irixen_prev_install 0
-      SetShellVarContext current
-      CopyFiles /SILENT "$APPDATA\IRIXEN Code\config.json" "$APPDATA\IRIXEN Code\config.json.preinstall"
-      Delete "$APPDATA\IRIXEN Code\config.json"
-      Delete "$APPDATA\IRIXEN Code\model-cache.json"
+      CreateDirectory "$INSTDIR"
+      FileOpen $0 "$INSTDIR\first-run.marker" w
+      FileClose $0
     irixen_prev_install:
   ${EndIf}
 !macroend

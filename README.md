@@ -157,6 +157,7 @@ docs/                   架构、构建、技能开发
 - [架构设计](docs/ARCHITECTURE.md)
 - [构建与工具链](docs/BUILD.md)
 - [技能开发](docs/SKILLS.md)
+- [杀软误报记录](docs/antivirus.md)
 - [贡献指南](CONTRIBUTING.md)
 
 ## 许可
