@@ -526,6 +526,12 @@ function agentTab(): HTMLElement {
       toggle(a.auto_skills, (v) => (a.auto_skills = v)),
       h('span', { class: 'hint' }, t('settings.autoSkills')),
     ),
+    h('div', { class: 'row', style: { margin: '0 0 14px' } },
+      toggle(Boolean(draft?.editor_format_on_save), (v) => {
+        if (draft) draft.editor_format_on_save = v;
+      }),
+      h('span', { class: 'hint' }, t('settings.formatOnSave')),
+    ),
     h('h3', null, t('settings.compression')),
     h('div', { class: 'row', style: { marginBottom: '10px' } },
       toggle(c.enabled, (v) => (c.enabled = v)),

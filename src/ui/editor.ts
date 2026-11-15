@@ -129,6 +129,56 @@ function hostsWithProviders(): boolean {
   return app.hosts.some((h) => h.state === 'running');
 }
 
+/** Nothing an extension does should be able to hold a keystroke hostage. */
+const LANG_TIMEOUT_MS = 4500;
+
+/** Per-kind sequence number: only the newest request may touch the editor. */
+const langSeq: Record<string, number> = {};
+
+/** Rate-limited, because a broken provider fires on every keystroke. */
+const lastComplaint: Record<string, number> = {};
+function complainOnce(key: string, message: string) {
+  const now = Date.now();
+  if (now - (lastComplaint[key] ?? 0) < 15000) return;
+  lastComplaint[key] = now;
+  toast(message, 'err', 3200);
+}
+
+/**
+ * Ask every provider registered for this language feature.
+ *
+ * Three things the bare `api.extLanguage` call does not do, all of which used to
+ * be silent: a hung host is cut off instead of blocking the editor forever, a
+ * reply that lost the race against newer input is dropped instead of overwriting
+ * it, and a failing extension is named out loud instead of returning `[]` and
+ * looking like "this extension does nothing".
+ */
+async function askExtensions(
+  kind: 'completion' | 'hover' | 'format' | 'rangeFormat',
+  args: { path: string; language: string; text: string; line?: number; character?: number; options?: unknown },
+): Promise<{ ext: string; value: unknown }[]> {
+  const seq = (langSeq[kind] = (langSeq[kind] ?? 0) + 1);
+  let timer: number | undefined;
+  const timeout = new Promise<null>((resolve) => {
+    timer = window.setTimeout(() => resolve(null), LANG_TIMEOUT_MS);
+  });
+  try {
+    const rows = await Promise.race([api.extLanguage({ kind, ...args }), timeout]);
+    if (rows === null) {
+      complainOnce(`${kind}:timeout`, t('editor.providerTimeout'));
+      return [];
+    }
+    // A slower, older request must not win over the text the user is typing now.
+    if (langSeq[kind] !== seq) return [];
+    return rows;
+  } catch (e) {
+    complainOnce(`${kind}:error`, t('editor.providerFailed', { error: String(e) }));
+    return [];
+  } finally {
+    if (timer !== undefined) window.clearTimeout(timer);
+  }
+}
+
 function completionType(kind: unknown): string {
   // Map VS Code's CompletionItemKind onto CodeMirror's icon buckets.
   const n = typeof kind === 'number' ? kind : 0;
@@ -155,19 +205,13 @@ async function extCompletionSource(ctx: CompletionContext): Promise<CompletionRe
   const word = ctx.matchBefore(/[\w$.\-]*/);
   if (!ctx.explicit && (!word || word.from === ctx.pos)) return null;
   const at = lineCol(ctx.view ?? view!, ctx.pos);
-  let rows: { ext: string; value: unknown }[] = [];
-  try {
-    rows = await api.extLanguage({
-      kind: 'completion',
-      path: file.path,
-      language: file.lang,
-      text: ctx.state.doc.toString(),
-      line: at.line,
-      character: at.character,
-    });
-  } catch {
-    return null;
-  }
+  const rows = await askExtensions('completion', {
+    path: file.path,
+    language: file.lang,
+    text: ctx.state.doc.toString(),
+    line: at.line,
+    character: at.character,
+  });
   const options: Completion[] = [];
   for (const row of rows) {
     const value = row.value as { items?: unknown[] } | unknown[] | null;
@@ -201,19 +245,13 @@ const extHover = hoverTooltip(
     const file = activeFile();
     if (!file || !hostsWithProviders()) return null;
     const at = lineCol(v, pos);
-    let rows: { ext: string; value: unknown }[] = [];
-    try {
-      rows = await api.extLanguage({
-        kind: 'hover',
-        path: file.path,
-        language: file.lang,
-        text: v.state.doc.toString(),
-        line: at.line,
-        character: at.character,
-      });
-    } catch {
-      return null;
-    }
+    const rows = await askExtensions('hover', {
+      path: file.path,
+      language: file.lang,
+      text: v.state.doc.toString(),
+      line: at.line,
+      character: at.character,
+    });
     const parts: string[] = [];
     for (const row of rows) {
       const value = row.value as Record<string, any> | null;
@@ -237,27 +275,29 @@ const extHover = hoverTooltip(
   { hoverTime: 350 },
 );
 
-/** Format the buffer through a registered provider (Prettier and friends). */
-export async function formatDocument(): Promise<void> {
+/**
+ * Format the buffer through a registered provider (Prettier and friends).
+ *
+ * `quiet` is for format-on-save: a save that also formats should not stack two
+ * toasts, and the file is written afterwards anyway. Failures stay loud in both
+ * modes — a silent no-op is how "Prettier is installed but does nothing" starts.
+ */
+export async function formatDocument(opts: { quiet?: boolean } = {}): Promise<void> {
   const file = activeFile();
   if (!file || !view) return;
+  const say = (message: string, kind: 'ok' | 'info') => {
+    if (!opts.quiet) toast(message, kind, 1600);
+  };
   if (!hostsWithProviders()) {
-    toast(t('editor.noFormatter'), 'info', 1600);
+    if (!opts.quiet) toast(t('editor.hostDown'), 'info', 2200);
     return;
   }
-  let rows: { ext: string; value: unknown }[] = [];
-  try {
-    rows = await api.extLanguage({
-      kind: 'format',
-      path: file.path,
-      language: file.lang,
-      text: view.state.doc.toString(),
-      options: { tabSize: 2, insertSpaces: true },
-    });
-  } catch (e) {
-    toast(String(e), 'err');
-    return;
-  }
+  const rows = await askExtensions('format', {
+    path: file.path,
+    language: file.lang,
+    text: view.state.doc.toString(),
+    options: { tabSize: 2, insertSpaces: true },
+  });
   const doc = view.state.doc;
   const offset = (p: { line: number; character: number }) => {
     const line = doc.line(Math.min(Math.max(1, p.line + 1), doc.lines));
@@ -273,10 +313,10 @@ export async function formatDocument(): Promise<void> {
     if (!changes.length) continue;
     view.dispatch({ changes });
     file.content = view.state.doc.toString();
-    toast(`${t('editor.formatted')} · ${row.ext}`, 'ok', 1400);
+    say(`${t('editor.formatted')} · ${row.ext}`, 'ok');
     return;
   }
-  toast(t('editor.noFormatter'), 'info', 1600);
+  say(t('editor.noFormatter'), 'info');
 }
 
 const theme = EditorView.theme({
@@ -579,6 +619,15 @@ function renderEditor(scrollToLine?: number) {
         },
         {
           key: 'Mod-Shift-i',
+          preventDefault: true,
+          run: () => {
+            void formatDocument();
+            return true;
+          },
+        },
+        {
+          // The binding people already have in their fingers from VS Code.
+          key: 'Shift-Alt-f',
           preventDefault: true,
           run: () => {
             void formatDocument();
@@ -943,6 +992,11 @@ export function runActiveFile() {
 export async function saveActive(): Promise<boolean> {
   const file = activeFile();
   if (!file) return false;
+  // Format on save is opt-in: it rewrites the buffer, and nobody wants that
+  // happening behind their back when a formatter has opinions about their file.
+  if (app.config?.editor_format_on_save) {
+    await formatDocument({ quiet: true });
+  }
   try {
     await api.write(file.path, file.content);
     file.saved = file.content;

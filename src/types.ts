@@ -194,6 +194,8 @@ export interface AppConfig {
   extensions: ExtensionsConfig;
   /** Per-file language overrides, keyed by absolute path. */
   file_languages?: Record<string, string>;
+  /** Run a registered formatter over the buffer before every save. */
+  editor_format_on_save?: boolean;
   /** Per-language runner overrides. */
   runners?: Record<string, RunnerConfig>;
   /** Shell for the integrated terminal. Empty = auto-detect. */
@@ -636,6 +638,13 @@ export interface ExtInspect {
   engines: string;
   size_bytes: number;
   file_count: number;
+  /** VS Code APIs the entry file actually calls, with this host's coverage. */
+  api_gaps: ApiGap[];
+}
+
+export interface ApiGap {
+  name: string;
+  supported: boolean;
 }
 
 export interface ExtUpdate {

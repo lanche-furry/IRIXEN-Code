@@ -316,7 +316,9 @@ Extensions come in two layers: **declarative contribution points** (12.1–12.5 
        ├─ contributes.languages   → extension → language id (highlighting/snippets) ✅ really applied
        ├─ contributes.commands    → panel/command palette; executable with main  ✅ really applied
        ├─ main: "./extension.js"  → the Node extension host (§13)                ✅ really runs
-       └─ language-service providers → registerXxxProvider                      ⏳ not implemented
+       ├─ completion/hover/format providers → registerXxxProvider (4)             ✅ really applied
+       ├─ TreeView / Webview      → registerTreeDataProvider and friends          ✅ really applied
+       └─ diagnostics/goto/symbols/actions → registerXxxProvider (the rest)       ⏳ registers, nothing happens
 ```
 
 ### 12.1 Four install sources, one entry point
@@ -556,7 +558,12 @@ Without that step `node.exe` lingers in Task Manager — fatal during developmen
 | Documents/editing | `TextDocument` (`getText`/`lineAt`/`offsetAt`/`positionAt`/`lineCount`), `TextEditor.edit`, `workspace.applyEdit` |
 | Types | `Uri`, `Position`, `Range`, `Selection`, `Location`, `Disposable`, `EventEmitter`, `ThemeIcon`, `MarkdownString`, `StatusBarAlignment`, `ViewColumn` |
 | `context` | `globalState`/`workspaceState` (persisted to `<extension dir>/.state/ext-state.json`), `extensionPath`, `asAbsolutePath`, `logPath`, `storageUri` |
-| Not implemented | language-service providers (completion/diagnostics/definition), `Webview`, `TreeView`, `Task`/`Terminal` |
+| `languages` | `registerCompletionItemProvider`, `registerHoverProvider`, `registerDocumentFormattingEditProvider`, `registerDocumentRangeFormattingEditProvider` — all four reach CodeMirror; every request has a 4.5 s timeout and stale replies are dropped, so a wedged host cannot freeze the editor |
+| TreeView | `registerTreeDataProvider`, `createTreeView` (children are pulled from the extension on demand) |
+| Webview | `createWebviewPanel`, `registerWebviewViewProvider`, `postMessage` / `onDidReceiveMessage` (panel pages load over the custom `irixen-wv` scheme) |
+| Not implemented | diagnostic collections (`createDiagnosticCollection` accepts the data and drops it), go to definition, find references, code actions, document/workspace symbols, CodeLens, rename, semantic tokens, `Task`/`Terminal` APIs |
+
+**Do not make the user guess.** The detail page of an installed extension has an "APIs used" section: `extensions::scan_api_usage` looks for the call sites that really appear in the extension's entry file, and every unimplemented capability is shown in red with an explanation. When something installed does nothing, look there first — it tells "this extension is broken" apart from "this host never implemented that API".
 
 Unimplemented APIs **exist but throw `not implemented`** instead of being `undefined` — a feature probe like `if (vscode.window.createTreeView)` would silently downgrade an extension on `undefined`, whereas a throwing function at least puts a name in the log.
 

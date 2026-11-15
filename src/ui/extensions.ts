@@ -1125,6 +1125,19 @@ function renderInstalledDetail(d: ExtInspect): HTMLElement {
           ...[...d.categories, ...d.keywords].map((x) => h('span', { class: 'ext-chip' }, x)))
       : null,
     detailSection(t('ext.detail.contributions'), contribBody),
+    d.api_gaps?.length
+      ? detailSection(t('ext.detail.apiUsed'),
+          h('div', null,
+            h('div', { class: 'extinfo-chips' },
+              ...d.api_gaps.map((g) =>
+                h('span', {
+                  class: `ext-chip mono${g.supported ? '' : ' api-gap'}`,
+                  title: g.supported ? undefined : t('ext.detail.apiGapHint'),
+                }, g.name))),
+            d.api_gaps.some((g) => !g.supported)
+              ? h('div', { class: 'hint', style: { marginTop: '6px' } }, t('ext.detail.apiGapHint'))
+              : null))
+      : null,
     info.activation.length
       ? detailSection(t('ext.detail.activation'),
           h('div', { class: 'ext-chips' },

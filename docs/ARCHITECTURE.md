@@ -319,7 +319,9 @@ when: 省token, 太长, 精简, 冗长
        ├─ contributes.languages   → 扩展名 → 语言 id（高亮/片段域）   ✅ 真实生效
        ├─ contributes.commands    → 面板/命令面板；有 main 时可执行   ✅ 真实生效
        ├─ main: "./extension.js"  → Node 扩展宿主（§13）             ✅ 真实运行
-       └─ 语言服务类 provider     → registerXxxProvider              ⏳ 未实现
+       ├─ 补全/悬停/格式化 provider → registerXxxProvider（4 个）      ✅ 真实生效
+       ├─ TreeView / Webview       → registerTreeDataProvider 等      ✅ 真实生效
+       └─ 诊断/跳转/符号/代码操作   → registerXxxProvider（其余）      ⏳ 注册了但不生效
 ```
 
 ### 12.1 四种安装来源，一个入口
@@ -559,7 +561,12 @@ GET …/node-v{ver}-win-x64.zip            → 内存里解开
 | 文档/编辑 | `TextDocument`（`getText`/`lineAt`/`offsetAt`/`positionAt`/`lineCount`）、`TextEditor.edit`、`workspace.applyEdit` |
 | 类型 | `Uri`、`Position`、`Range`、`Selection`、`Location`、`Disposable`、`EventEmitter`、`ThemeIcon`、`MarkdownString`、`StatusBarAlignment`、`ViewColumn` |
 | `context` | `globalState`/`workspaceState`（落 `<扩展目录>/.state/ext-state.json`）、`extensionPath`、`asAbsolutePath`、`logPath`、`storageUri` |
-| 未实现 | 语言服务类 provider（补全/诊断/跳转）、`Webview`、`TreeView`、`Task`/`Terminal` |
+| `languages` | `registerCompletionItemProvider`、`registerHoverProvider`、`registerDocumentFormattingEditProvider`、`registerDocumentRangeFormattingEditProvider`——四个都接到 CodeMirror；请求有 4.5 s 超时与序号丢弃，宿主卡住不会冻结编辑器 |
+| TreeView | `registerTreeDataProvider`、`createTreeView`（子节点按需向扩展要） |
+| Webview | `createWebviewPanel`、`registerWebviewViewProvider`、`postMessage` / `onDidReceiveMessage`（面板页走 `irixen-wv` 自定义协议） |
+| 未实现 | 诊断集合（`createDiagnosticCollection` 收了但扔掉）、定义跳转、引用查找、代码操作、文档/工作区符号、CodeLens、重命名、语义着色、`Task`/`Terminal` API |
+
+**别让用户自己猜**：已安装扩展的详情页有一节「用到的 API」，`extensions::scan_api_usage` 扫扩展入口里真实出现过的调用点，未实现的能力标红并给出说明。装完发现某个功能没反应时，先看那里——它区分得了「这个扩展有问题」和「这个宿主没实现这个 API」。
 
 未实现的 API 一律**存在但是抛 `not implemented`**，而不是 `undefined`——`if (vscode.window.createTreeView)` 这种特性探测拿到 `undefined` 会让扩展悄悄降级，拿到能抛错的函数至少日志里有名字。
 

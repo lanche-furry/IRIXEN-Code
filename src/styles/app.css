@@ -2501,6 +2501,14 @@
 .extinfo-chips .ext-chip,
 .extinfo-group .ext-chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ext-chip.mono { font-family: var(--font-mono); }
+/* An API this host does not answer: the extension will install and activate,
+   then do nothing for that feature. Red chip + tooltip, not a silent gap. */
+.ext-chip.api-gap {
+  color: var(--err);
+  border-color: var(--err-line);
+  background: var(--err-soft);
+  cursor: help;
+}
 .extinfo-warn {
   display: flex;
   gap: 8px;

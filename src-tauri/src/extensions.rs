@@ -1859,6 +1859,75 @@ pub struct ExtInspect {
     pub engines: String,
     pub size_bytes: u64,
     pub file_count: usize,
+    pub api_gaps: Vec<ApiGap>,
+}
+
+/// One VS Code API an installed extension actually calls, and whether this host
+/// answers it.
+///
+/// The point is the `supported: false` rows. An extension that registers a
+/// diagnostic collection and then watches nothing happen looks broken, and the
+/// user has no way to tell "this plugin is bad" from "this IDE never implemented
+/// that API". The detail card now says which.
+#[derive(Serialize, Clone, Default)]
+#[serde(default)]
+pub struct ApiGap {
+    pub name: String,
+    pub supported: bool,
+}
+
+/// Probed by the call site an extension writes in its entry file. Labels are
+/// deliberately technical: they name the capability, not the function.
+const API_PROBES: &[(&str, &str, bool)] = &[
+    ("registerCompletionItemProvider", "Completion", true),
+    ("registerHoverProvider", "Hover", true),
+    ("registerDocumentFormattingEditProvider", "Formatting", true),
+    ("registerDocumentRangeFormattingEditProvider", "Range formatting", true),
+    ("registerTreeDataProvider", "Tree view", true),
+    ("createTreeView", "Tree view", true),
+    ("createWebviewPanel", "Webview", true),
+    ("registerWebviewViewProvider", "Webview view", true),
+    ("registerDefinitionProvider", "Go to definition", false),
+    ("registerReferenceProvider", "Find references", false),
+    ("registerCodeActionsProvider", "Code actions", false),
+    ("registerDocumentSymbolProvider", "Document symbols", false),
+    ("registerWorkspaceSymbolProvider", "Workspace symbols", false),
+    ("registerCodeLensProvider", "Code lens", false),
+    ("registerRenameProvider", "Rename", false),
+    ("registerSemanticTokensProvider", "Semantic tokens", false),
+    ("registerFileSystemProvider", "File system provider", false),
+    ("createDiagnosticCollection", "Diagnostics", false),
+];
+
+/// Entry files are usually a bundle; 2 MB is far past anything worth scanning
+/// and keeps a pathological package from stalling the detail pane.
+const MAX_ENTRY_SCAN: u64 = 2 * 1024 * 1024;
+
+fn scan_api_usage(root: &std::path::Path, entry: &str) -> Vec<ApiGap> {
+    let path = if entry.is_empty() { root.join("extension.js") } else { root.join(entry) };
+    let Ok(meta) = std::fs::metadata(&path) else { return Vec::new() };
+    if !meta.is_file() || meta.len() > MAX_ENTRY_SCAN {
+        return Vec::new();
+    }
+    let Ok(text) = std::fs::read_to_string(&path) else { return Vec::new() };
+    api_gaps_in(&text)
+}
+
+/// The matching half, split out so it can be tested without a directory.
+fn api_gaps_in(text: &str) -> Vec<ApiGap> {
+    let mut out: Vec<ApiGap> = Vec::new();
+    for (call, label, supported) in API_PROBES {
+        if !text.contains(&format!(".{call}(")) {
+            continue;
+        }
+        // Two APIs can back the same label; one working path is enough.
+        match out.iter_mut().find(|g| g.name == *label) {
+            Some(slot) => slot.supported |= *supported,
+            None => out.push(ApiGap { name: (*label).to_string(), supported: *supported }),
+        }
+    }
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    out
 }
 
 const MAX_DOC_BYTES: usize = 96 * 1024;
@@ -1960,6 +2029,7 @@ pub fn inspect(id: &str) -> Result<ExtInspect, String> {
     );
     let declared_license = str_field(&pkg, "license");
     let (size_bytes, file_count) = dir_stats(&root);
+    let api_gaps = scan_api_usage(&root, &info.entry);
 
     Ok(ExtInspect {
         info,
@@ -1978,6 +2048,7 @@ pub fn inspect(id: &str) -> Result<ExtInspect, String> {
         engines,
         size_bytes,
         file_count,
+        api_gaps,
     })
 }
 
@@ -1985,6 +2056,41 @@ pub fn inspect(id: &str) -> Result<ExtInspect, String> {
 mod l10n_tests {
     use super::*;
     use serde_json::json;
+
+    /// The detail card is only honest if the scan is: an API the extension calls
+    /// must be listed, an API it merely mentions in a comment must not be.
+    #[test]
+    fn api_gaps_name_what_the_extension_actually_calls() {
+        let src = r#"
+            const vscode = require('vscode');
+            vscode.languages.registerCompletionItemProvider('javascript', provider);
+            vscode.languages.createDiagnosticCollection('eslint');
+            vscode.languages.registerDocumentSymbolProvider('javascript', provider);
+            vscode.window.registerTreeDataProvider('todo', tree);
+            // registerDefinitionProvider is mentioned here but never called.
+        "#;
+        let gaps = api_gaps_in(src);
+        let find = |name: &str| gaps.iter().find(|g| g.name == name);
+        assert_eq!(find("Completion").map(|g| g.supported), Some(true));
+        assert_eq!(find("Tree view").map(|g| g.supported), Some(true));
+        assert_eq!(find("Diagnostics").map(|g| g.supported), Some(false));
+        assert_eq!(find("Document symbols").map(|g| g.supported), Some(false));
+        assert!(find("Go to definition").is_none());
+        // Sorted, so the chips do not shuffle between two openings of the card.
+        let names: Vec<&str> = gaps.iter().map(|g| g.name.as_str()).collect();
+        let mut sorted = names.clone();
+        sorted.sort_unstable();
+        assert_eq!(names, sorted);
+    }
+
+    /// Two APIs can back one label; a working path must not be dragged down by
+    /// the unimplemented one.
+    #[test]
+    fn a_supported_label_stays_supported() {
+        let gaps = api_gaps_in("x.registerTreeDataProvider('a', p); y.createTreeView('b', o);");
+        assert_eq!(gaps.len(), 1);
+        assert!(gaps[0].supported);
+    }
 
     #[test]
     fn resolves_nls_keys_and_locale_fallback() {

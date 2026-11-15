@@ -1488,8 +1488,13 @@ pub async fn exthost_run(
 /// Returns one entry per provider that answered: `[{ ext, value }]`. The
 /// renderer merges them, because only it knows whether a completion list should
 /// be concatenated and a format result applied.
+///
+/// `async` on purpose: `language_call` blocks on the host's reply (up to 6 s per
+/// provider), and a synchronous command runs that wait on the main thread — one
+/// slow completion provider would freeze typing, hover and every other IPC call
+/// for the duration. Off the main thread it costs nothing but a thread.
 #[tauri::command]
-pub fn ext_language(
+pub async fn ext_language(
     host: State<'_, Arc<crate::exthost::ExtHost>>,
     kind: String,
     path: String,
@@ -1498,7 +1503,7 @@ pub fn ext_language(
     line: Option<u32>,
     character: Option<u32>,
     options: Option<serde_json::Value>,
-) -> Vec<serde_json::Value> {
+) -> Result<Vec<serde_json::Value>, String> {
     let doc = serde_json::json!({
         "path": path,
         "text": text,
@@ -1512,7 +1517,12 @@ pub fn ext_language(
     if let Some(o) = options {
         extra.insert("options".into(), o);
     }
-    host.language_call(&kind, &language, doc, serde_json::Value::Object(extra))
+    let host = host.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        host.language_call(&kind, &language, doc, serde_json::Value::Object(extra))
+    })
+    .await
+    .map_err(|e| format!("扩展请求失败：{e}"))
 }
 
 #[tauri::command]

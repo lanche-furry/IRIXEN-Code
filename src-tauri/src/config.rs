@@ -659,6 +659,11 @@ pub struct AppConfig {
     /// "this `.txt` is actually Python" without renaming the file.
     #[serde(default)]
     pub file_languages: std::collections::BTreeMap<String, String>,
+    /// Run a registered formatter over the buffer before saving. Off by default:
+    /// a formatter with opinions about the file should not act uninvited, and
+    /// format-on-save is exactly the kind of thing that surprises people.
+    #[serde(default)]
+    pub editor_format_on_save: bool,
     /// Per-language runner overrides. Missing entries use the built-in default.
     #[serde(default)]
     pub runners: std::collections::BTreeMap<String, RunnerConfig>,
@@ -794,6 +799,7 @@ impl Default for AppConfig {
             bridge: BridgeConfig::default(),
             extensions: ExtensionsConfig::default(),
             file_languages: std::collections::BTreeMap::new(),
+            editor_format_on_save: false,
             runners: std::collections::BTreeMap::new(),
             terminal_shell: String::new(),
             onboarding_completed: false,
