@@ -13,3 +13,8 @@ Thumbs.db
 src-tauri/gen/
 .tmp/
 vite.config.ts.timestamp-*
+
+# Local credentials: the GitHub token is staged at E:/irixen-build/.ghtoken and
+# must never enter the repository (or an installer — see bundle.resources).
+.ghtoken
+*.ghtoken
