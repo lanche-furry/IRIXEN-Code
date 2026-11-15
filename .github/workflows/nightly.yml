@@ -170,18 +170,27 @@ jobs:
           path: dist
           merge-multiple: true
 
+      # Release notes are bilingual on every channel: Chinese first, then the
+      # English half. Same order and structure as docs/release-notes/<tag>.md.
       - name: Build release notes
         shell: bash
         run: |
           set -euo pipefail
           date=$(date -u +%Y%m%d)
           echo "DATE=$date" >> "$GITHUB_ENV"
+          version=$(node -p "require('./package.json').version")
+          sha=$(git rev-parse --short HEAD)
+          built=$(date -u '+%Y-%m-%d %H:%M UTC')
           {
+            echo "# Nightly ${date} · 发行说明 / Release Notes"
+            echo
+            echo "## 简体中文"
+            echo
             echo "自动每日构建，来自 \`main\` 的最新提交。"
             echo
-            echo "- 提交：\`$(git rev-parse --short HEAD)\`"
-            echo "- 构建时间：$(date -u '+%Y-%m-%d %H:%M UTC')"
-            echo "- 版本基线：$(node -p "require('./package.json').version")"
+            echo "- 提交：\`${sha}\`"
+            echo "- 构建时间：${built}"
+            echo "- 版本基线：${version}"
             echo
             echo "| 平台 | 安装包 |"
             echo "| --- | --- |"
@@ -191,6 +200,29 @@ jobs:
             echo "每日构建可能不稳定，正式版本请看 Beta 发布。"
             echo
             echo "最近提交："
+            echo
+            echo '```'
+            git log --oneline -10
+            echo '```'
+            echo
+            echo "---"
+            echo
+            echo "## English"
+            echo
+            echo "Automated nightly build from the latest commit on \`main\`."
+            echo
+            echo "- Commit: \`${sha}\`"
+            echo "- Built at: ${built}"
+            echo "- Version baseline: ${version}"
+            echo
+            echo "| Platform | Installer |"
+            echo "| --- | --- |"
+            echo "| Windows x64 | \`IRIXEN Code_nightly-${date}_x64-setup.exe\` |"
+            echo "| Linux x64 | \`IRIXEN_Code_nightly-${date}_amd64.AppImage\` / \`.deb\` |"
+            echo
+            echo "Nightlies can be unstable. For releases, see the Beta channel."
+            echo
+            echo "Recent commits:"
             echo
             echo '```'
             git log --oneline -10

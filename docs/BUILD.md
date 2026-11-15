@@ -218,6 +218,24 @@ git tag Beta0.2 && git push origin Beta0.2
 
 推 tag 会触发 `.github/workflows/release.yml`：Windows 打 NSIS、Linux 打 deb + AppImage，然后发布为 **latest 频道**（`--latest`、非 prerelease），所以应用内「检查更新」会把它当作最新版。发布说明取自 `docs/release-notes/<tag>.md`，该文件不存在则用 GitHub 自动生成的版本。
 
+**发布说明必须中英双语**。两边讲同一批变更，顺序一致，不要一边多出条目：
+
+```
+# Beta 0.2 · 发行说明 / Release Notes
+
+## 简体中文
+（正文：改了什么、装哪个包、怎么装、已知问题）
+
+---
+
+## English
+（与上面逐节对应的英文正文）
+```
+
+中文在前（主要受众），英文在后，中间用 `---` 分隔。表格、命令、文件名两边都完整写一遍 —— 别让英文读者回翻中文段去找安装命令。`docs/release-notes/Beta0.2.md` 是现成的样板。`nightly` 频道的说明由 `nightly.yml` 现场生成，同样是这个结构，不需要手写文件。
+
+这条规则有闸门，不靠自觉：`npm run notes:check -- Beta0.2` 校验两半是否齐全（缺英文段、英文在前、只有标题没正文都会直接失败并指出原因）。`release.yml` 在发布前跑同一个脚本（`scripts/notes-check.mjs`），不达标就停在上传之前。已经发出去的 release 想补正文，不必为了改一段文字重建两个平台的包 —— 跑一次 **Release notes** 工作流（`.github/workflows/release-notes.yml`），填 tag，它只改正文、不动附件；它总是从默认分支读说明，所以 tag 之后才改的文字也能生效。
+
 **不要手动建 Release**：手动创建的 release 不会带 Linux 包，还容易和 tag 触发的那次抢同一个 tag。工作流发布前会核对 tag 的数字化形式与 `package.json` 版本，对不上直接失败——这就是为了拦住「忘了 bump 就发版」。
 
 **标签与版本的关系**：tag 用**产品标签、不带 `v`、不带空格**（`Beta0.1`、`Beta0.2`）。`compare_semver` 把 `Beta0.2` 解析成 `0.2`，因此 `Beta0.2` 对 `0.1.0-beta.1` 判为更新。但标签本身不带预发布后缀，对 `0.2.0-beta.1` 反而会被判成更高，所以 `from_release` 先用 `is_current_label` 比对产品标签，相同就直接认定「无更新」——否则刚装上 Beta0.2 的人会被提示升级到 Beta0.2。`nightly` 由 `is_version_tag` 排除在版本判断之外：它是每日构建，不是版本。

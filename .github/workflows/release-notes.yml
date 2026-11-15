@@ -1,0 +1,60 @@
+name: Release notes
+
+# Re-sync the body of a published release from docs/release-notes/<tag>.md.
+#
+# Publishing runs both platform builds (~40 min), which is a steep price for
+# fixing a typo in the notes — or for making an already-published release
+# bilingual. This workflow only edits the body; the assets are left untouched.
+#
+# It reads the notes from the default branch on purpose: a tag is frozen, so a
+# correction made after tagging would never be visible if we checked out the tag.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag of the release to update (must already have a release, e.g. Beta0.2)"
+        required: true
+
+concurrency:
+  group: release-notes-${{ inputs.tag }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  update:
+    if: github.repository == 'lanche-furry/IRIXEN-Code'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Same gate as the publish job, and it is not skippable here: this workflow
+      # exists to put bilingual notes on a release, so a Chinese-only file is a
+      # hard failure rather than a warning.
+      - name: Check the release notes are bilingual
+        env:
+          TAG: ${{ inputs.tag }}
+        run: node scripts/notes-check.mjs "$TAG"
+
+      - name: Update the release body
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          file="docs/release-notes/${TAG}.md"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::error::no release for tag $TAG — push the tag to run release.yml first"
+            exit 1
+          fi
+          gh release edit "$TAG" --notes-file "$file"
+          gh release view "$TAG" --json tagName,isPrerelease,url \
+            --jq '{tag: .tagName, pre: .isPrerelease, url: .url}'

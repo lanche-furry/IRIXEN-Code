@@ -130,4 +130,6 @@ console.log('     pushing the tag runs .github/workflows/release.yml: it builds'
 console.log('     Windows and Linux and publishes the release on the latest channel.');
 console.log('  3. notes come from docs/release-notes/<tag>.md when that file exists,');
 console.log('     otherwise GitHub generates them from the commit range.');
+console.log('     Write that file bilingually: "## 简体中文" first, then the English');
+console.log('     half after a "---" — same sections, same order, both complete.');
 console.log(`     Tags are the product label with no leading "v" and no spaces (${releaseTag}).`);

@@ -212,6 +212,15 @@ jobs:
               esac;;
           esac
 
+      # Release notes are a deliverable, not an afterthought: both halves or the
+      # release fails here, before anything is uploaded. Chinese first, then the
+      # English half after a `---` (see docs/release-notes/Beta0.2.md).
+      - name: Check the release notes are bilingual
+        shell: bash
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: node scripts/notes-check.mjs "$TAG" --allow-missing
+
       # Re-running for a tag that already has a release replaces the assets
       # instead of failing: signing is added after the fact, and a rebuild is
       # the only way to get signed binaries onto an existing release.
