@@ -2,7 +2,7 @@
 
 import { h, clear, fmtBytes } from '../core/dom';
 import { icon } from './icons';
-import { t, setLang, LANGS } from '../core/i18n';
+import { t, setLang, getLang, LANGS } from '../core/i18n';
 import { api, errText } from '../core/api';
 import { app, emit, on } from '../core/state';
 import { toast, confirmDialog, promptDialog, errorBox } from './toast';
@@ -1003,6 +1003,29 @@ function openLink(url: string) {
   void api.openExternal(url).catch((e) => toast(errText(e), 'err'));
 }
 
+/** Release notes ship in both languages: `## 简体中文` first, `## English` after
+ *  a `---` (see docs/release-notes/Beta0.2.md). The card is a 220px scroll box,
+ *  so rendering both halves makes each one harder to read than either alone —
+ *  keep only the half matching the UI language, and drop the heading line that
+ *  names it (the card already says "release notes"). Notes without both
+ *  headings are older single-language pages and pass through untouched. */
+function notesInLang(notes: string): string {
+  const zhAt = notes.search(/^##+[ \t]*简体中文[ \t]*$/m);
+  const enAt = notes.search(/^##+[ \t]*English[ \t]*$/m);
+  if (zhAt < 0 || enAt < 0) return notes.trim();
+
+  const zh = getLang().startsWith('zh');
+  const half = notes.slice(zh ? zhAt : enAt, zh ? enAt : notes.length);
+
+  const lines = half.split('\n');
+  lines.shift();                 // "## 简体中文" / "## English"
+  // The `---` that separates the halves sits just before the other heading.
+  while (lines.length && (!lines[lines.length - 1].trim() || /^-{3,}\s*$/.test(lines[lines.length - 1]))) {
+    lines.pop();
+  }
+  return lines.join('\n').trim();
+}
+
 function renderUpdateBox(box: HTMLElement) {
   clear(box);
   const d = updateState.data;
@@ -1066,7 +1089,7 @@ function renderUpdateBox(box: HTMLElement) {
     : null;
 
   const notes = d.notes.trim()
-    ? h('pre', { class: 'about-update-notes' }, d.notes)
+    ? h('pre', { class: 'about-update-notes' }, notesInLang(d.notes))
     : null;
 
   box.append(h('div', { class: 'about-update-card new' },
