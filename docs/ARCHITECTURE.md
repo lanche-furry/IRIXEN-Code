@@ -1,5 +1,9 @@
 # 架构设计
 
+<p align="center">
+  中文 &nbsp;|&nbsp; <a href="./ARCHITECTURE.en.md">English</a>
+</p>
+
 IRIXEN Code 只有两层：**Rust 进程**（IRIXEN Agent + 系统能力）和 **WebView 渲染层**（IRIXEN Code 界面）。两者通过 Tauri IPC 通信，没有 HTTP 中间层，没有本地服务端口。
 
 ```

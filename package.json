@@ -16,7 +16,8 @@
     "app:build": "node scripts/build.mjs tauri build",
     "check": "node scripts/build.mjs check",
     "bump": "node scripts/version.mjs",
-    "notes:check": "node scripts/notes-check.mjs"
+    "notes:check": "node scripts/notes-check.mjs",
+    "docs:check": "node scripts/docs-check.mjs"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.4",

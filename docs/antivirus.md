@@ -1,5 +1,9 @@
 # 杀软误报记录
 
+<p align="center">
+  中文 &nbsp;|&nbsp; <a href="./antivirus.en.md">English</a>
+</p>
+
 Windows 安装包在 VirusTotal 上被 Avira 判为 `TR/Hijacker.Gen`，其余引擎全部无检出。这份文件记录证据、已经做过的处置，以及再次出现时怎么报误报。
 
 ## 已知结果

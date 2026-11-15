@@ -29,7 +29,7 @@ Where to go for what:
 | Built-in skills | `src-tauri/src/skills/builtin/*.md` |
 | UI layout | `src/styles/app.css` (each region is its own block) |
 | Colors / corner radius / type scale | `:root` tokens at the top of `src/styles/base.css` |
-| UI strings | `src/core/i18n.ts` (five languages, keys must line up) |
+| UI strings | `src/core/i18n.ts` (eight languages, keys must line up) |
 | Chat rendering | `src/ui/chat.ts` |
 
 ## Conventions
@@ -44,12 +44,23 @@ Where to go for what:
 
 - No framework: build nodes with `h()`, redraw explicitly when state changes.
 - Types must match the `serde` output from Rust (`src/types.ts` is the only mirror).
-- New strings go into all five dictionaries at once; a missing key falls back to English, but don't leave gaps on purpose.
+- New strings go into all eight dictionaries at once; a missing key falls back to English, but don't leave gaps on purpose.
 
 **CSS**
 
 - Use only the variables defined in `base.css` — no magic color values (custom themes work by overriding those variables).
 - Add new rules to the matching block in `app.css`, keeping the file's order: title bar → activity bar → sidebar → editor → panel → chat → status bar → settings.
+
+## Documentation
+
+**Every Markdown file ships in Chinese and English.** This is a hard requirement, not a suggestion:
+
+- Mirrored pairs: `X.md` + `X.en.md`, one language per file, each linking to the other at the top (the switch block under the title), with the same skeleton — identical heading depths and code-block count.
+- A new page means two files. Write the Chinese one first, then the English one section by section, keeping commands, paths and code blocks identical (an English reader should never scroll back to the Chinese paragraph to find `chmod +x`).
+- Run `npm run docs:check` afterwards (CI runs it too). It enumerates files with `git ls-files` and checks that the mirror exists, that both sides link to each other, and that headings and code blocks line up; translating only one side is reported as "heading structure differs at heading #N".
+- Two exceptions — do not "helpfully" translate them:
+  - `docs/release-notes/*.md` uses **inline bilingual** (`中文 / English` on every heading and bullet) and is validated by `npm run notes:check -- <tag>`
+  - `src-tauri/src/skills/builtin/*.md` are skill prompts fed to the model at runtime, not documentation for humans; translating them would double the prompt of every conversation
 
 ## Commits
 

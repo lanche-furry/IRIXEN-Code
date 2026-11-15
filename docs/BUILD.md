@@ -1,5 +1,9 @@
 # 构建与工具链
 
+<p align="center">
+  中文 &nbsp;|&nbsp; <a href="./BUILD.en.md">English</a>
+</p>
+
 ## 前置
 
 | 需要 | 说明 |

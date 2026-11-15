@@ -70,6 +70,12 @@ jobs:
         with:
           workspaces: "src-tauri -> target"
 
+      # Every Markdown file ships in both languages: a mirrored pair, the inline
+      # bilingual layout used by release notes, or a runtime prompt that is not
+      # documentation at all. Catches "wrote the doc, forgot the translation".
+      - name: Check the docs are bilingual
+        run: npm run docs:check
+
       # `tsc --noEmit` + Vite bundle. The type check is the part that matters
       # here; building the bundle keeps the entry point honest too.
       - name: Type check and bundle the frontend
