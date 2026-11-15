@@ -98,7 +98,9 @@ Nightlies are described in `.github/workflows/nightly.yml`: Windows and Linux ea
 
 **GitHub's `schedule` is not a timer.** The docs say plainly that the top of the hour is the busiest slot for scheduling: `schedule` events routinely arrive minutes late, occasionally more than an hour late, and sometimes not at all that day. Only the copy of the workflow file on the **default branch** counts, cron included — a schedule edited on another branch does nothing. Manual `workflow_dispatch` and the schedule are independent triggers: a manual run neither cancels that day's scheduled run nor takes its slot (the shared `concurrency` group at most makes them queue).
 
-So when "no build today" comes up, filter the run list by `event=schedule` first: a record that failed is a build problem — read the log; no record at all means the scheduler never fired, so trigger it by hand and leave the config alone.
+That is why the cron reads **`7 12 * * *`** — 12:07 UTC, 20:07 Beijing, **deliberately off the hour**. The top of the hour is the most congested moment in the scheduler queue every repository shares; a `0 12` cron arrives late often and gets dropped outright on a busy day. Nothing downstream cares whether it is exactly 12:00, so seven minutes cost nothing.
+
+So when "no build today" comes up, filter the run list by `event=schedule` first: a record that failed is a build problem — read the log; no record at all means the scheduler never fired, so trigger it by hand.
 
 ## Icons
 
@@ -175,7 +177,7 @@ Three workflows with non-overlapping jobs:
 | File | Trigger | What it does |
 | --- | --- | --- |
 | `.github/workflows/ci.yml` | push to `main`, any PR, manual | Fast check on both platforms (ubuntu-22.04 + windows-latest): `npm run build` (tsc + vite), `cargo check --all-targets`, `cargo test --lib`. **No bundling, no publishing** |
-| `.github/workflows/nightly.yml` | daily at 12:00 UTC (20:00 Beijing), manual | Bundles both platforms and publishes to the rolling `nightly` **pre-release** channel |
+| `.github/workflows/nightly.yml` | daily at 12:07 UTC (20:07 Beijing, deliberately off the hour), manual | Bundles both platforms and publishes to the rolling `nightly` **pre-release** channel |
 | `.github/workflows/release.yml` | pushing a `Beta*` / `v*` tag | Bundles both platforms and publishes to the **latest** stable channel |
 
 `ci.yml` must run Windows: the interesting code sits behind `#[cfg(windows)]`, and a Linux-only run would not even compile a line of it. Conversely the Linux job also runs `cargo test`, because it produces results fastest and can stop a logic error before bundling.

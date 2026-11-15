@@ -98,7 +98,9 @@ sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
 
 **GitHub 的 `schedule` 不是定时器。** 官方明确写着整点是调度负载高峰，`schedule` 事件经常延迟几分钟、偶尔延迟一小时以上，也可能当天干脆不来。它只认**默认分支**上那份工作流文件里的 cron，改在别的分支不生效。手动 `workflow_dispatch` 和定时任务是两个独立触发器：手动跑一次既不会取消当天的定时任务，也不会占掉它的名额（同一个 `concurrency` 组最多让它们排队）。
 
-所以「今天没出包」先按 `event=schedule` 过滤运行记录再判断：有记录但失败是构建问题，看日志；没有记录就是调度没来，手动补一次即可，不用改配置。
+所以 cron 定在 **`7 12 * * *`**——UTC 12:07、北京 20:07，**故意错开整点**。整点那一分钟是所有仓库共享的调度队列最挤的时刻，`0 12` 这种写法经常晚到、忙的时候还会整个丢掉；下游没有任何东西依赖「必须正好 12:00」，晚 7 分钟没有代价。
+
+排查「今天没出包」时先按 `event=schedule` 过滤运行记录再判断：有记录但失败是构建问题，看日志；没有记录就是调度没来，手动补一次即可。
 
 ## 图标
 
@@ -175,7 +177,7 @@ IRIXEN_HOME="E:/irixen-build/_probe-home" \
 | 文件 | 触发 | 做什么 |
 | --- | --- | --- |
 | `.github/workflows/ci.yml` | push 到 `main`、任意 PR、手动 | 双平台（ubuntu-22.04 + windows-latest）快检：`npm run build`（tsc + vite）、`cargo check --all-targets`、`cargo test --lib`。**不打包、不发布** |
-| `.github/workflows/nightly.yml` | 每天 UTC 12:00（北京 20:00）、手动 | 双平台打包，发布到滚动的 `nightly` **预发布**频道 |
+| `.github/workflows/nightly.yml` | 每天 UTC 12:07（北京 20:07，故意避开整点）、手动 | 双平台打包，发布到滚动的 `nightly` **预发布**频道 |
 | `.github/workflows/release.yml` | 推 `Beta*` / `v*` tag | 双平台打包，发布为 **latest** 正式频道 |
 
 `ci.yml` 必须跑 Windows：真正有意思的代码在 `#[cfg(windows)]` 后面，只跑 Linux 一行都编不到。反过来 Linux 那次也跑 `cargo test`，因为它出结果最快，逻辑错误能在打包前拦住。

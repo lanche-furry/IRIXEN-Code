@@ -12,16 +12,17 @@ name: Nightly build
 
 on:
   schedule:
-    # 12:00 UTC = 20:00 Asia/Shanghai, every day.
+    # 12:07 UTC = 20:07 Asia/Shanghai, every day. Seven minutes past the hour on
+    # purpose: GitHub dispatches `schedule` events from one queue shared by every
+    # repository, and the top of the hour is its busiest minute — a `0 12` cron
+    # regularly shows up late and occasionally not at all on a busy day. Nothing
+    # downstream cares about the exact minute.
     #
-    # Not a timer: GitHub queues `schedule` events behind whatever else is
-    # running, and the top of the hour is the busiest slot of the day, so runs
-    # arrive minutes late, occasionally more than an hour late, and very
-    # occasionally not at all. Only the copy of this file on the default branch
-    # is read for cron. A manual dispatch is a separate trigger — it neither
-    # cancels that day's scheduled run nor takes its place; the `concurrency`
-    # group below at most makes the two queue up.
-    - cron: "0 12 * * *"
+    # Still not a timer: runs can be delayed, only the copy of this file on the
+    # default branch is read for cron, and a manual dispatch is a separate
+    # trigger — it neither cancels that day's scheduled run nor takes its place
+    # (the `concurrency` group below at most makes the two queue up).
+    - cron: "7 12 * * *"
   workflow_dispatch:
 
 concurrency:
