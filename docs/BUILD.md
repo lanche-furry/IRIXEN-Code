@@ -96,6 +96,10 @@ sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
 
 每日构建见 `.github/workflows/nightly.yml`：Windows 与 Linux 各自出包，最后一个 publish 任务统一发布到滚动 `nightly` 预发布，避免两个平台争抢同一个 tag。
 
+**GitHub 的 `schedule` 不是定时器。** 官方明确写着整点是调度负载高峰，`schedule` 事件经常延迟几分钟、偶尔延迟一小时以上，也可能当天干脆不来。它只认**默认分支**上那份工作流文件里的 cron，改在别的分支不生效。手动 `workflow_dispatch` 和定时任务是两个独立触发器：手动跑一次既不会取消当天的定时任务，也不会占掉它的名额（同一个 `concurrency` 组最多让它们排队）。
+
+所以「今天没出包」先按 `event=schedule` 过滤运行记录再判断：有记录但失败是构建问题，看日志；没有记录就是调度没来，手动补一次即可，不用改配置。
+
 ## 图标
 
 ```bash

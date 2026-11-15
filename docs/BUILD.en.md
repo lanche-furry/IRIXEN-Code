@@ -96,6 +96,10 @@ Bundles land in `src-tauri/target/release/bundle/{deb,appimage}/`. Two traps:
 
 Nightlies are described in `.github/workflows/nightly.yml`: Windows and Linux each build their bundles, and a final publish job pushes both to the rolling `nightly` pre-release so the two platforms never fight over one tag.
 
+**GitHub's `schedule` is not a timer.** The docs say plainly that the top of the hour is the busiest slot for scheduling: `schedule` events routinely arrive minutes late, occasionally more than an hour late, and sometimes not at all that day. Only the copy of the workflow file on the **default branch** counts, cron included — a schedule edited on another branch does nothing. Manual `workflow_dispatch` and the schedule are independent triggers: a manual run neither cancels that day's scheduled run nor takes its slot (the shared `concurrency` group at most makes them queue).
+
+So when "no build today" comes up, filter the run list by `event=schedule` first: a record that failed is a build problem — read the log; no record at all means the scheduler never fired, so trigger it by hand and leave the config alone.
+
 ## Icons
 
 ```bash
