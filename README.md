@@ -67,9 +67,10 @@ IRIXEN Code 由两部分组成：
 - 文件树（懒加载）、全工作区搜索（遵循 `ignore` 规则）、Git 面板（暂存 / 提交 / 推送 / 拉取 / 分支 / 差异）
 - **审查面板**：一眼扫完工作区改动（`git status` + diff 统计），一键把「这些文件改了什么、有没有风险」连同当前 diff 交给 Agent 审。行级差异用红绿着色，和状态栏、快捷栏角标联动
 - **安全审查**：审查面板里的「安全审查」只发一句意图，Agent 先跑 `security_scan`（原生工具，固定规则表：云厂商密钥 / 私钥块 / 关掉的 TLS 校验 / shell 与 SQL 注入 / 全局可写 / 密钥文件 / CI 里没锁 SHA 的 action），再逐条读代码判断是否真的可达；扫描输出里密钥一律脱敏（只留 4 位头尾），枚举交给扫描器、判断留给模型
+- **访问模式**：输入框上方三档——「受限访问」每次写入与命令都要你点确认、工作区外一律不可达；「自动审批」工作区内直接干、越界才问；「完全访问」什么都不问，工作区外也能读写。代理会停在审批卡片上等你回答，停止按钮同时撤销等待中的确认
 - 工作区统计（文件数 / 代码行 / 体积 / 按扩展名分布 / 最大文件）与 API 用量（调用次数、输入输出、推理、缓存命中，按模型与会话分组）
 - 主题：深色 / 浅色 / **自定义**（任意 CSS 变量覆盖，自动派生 `--accent-soft` 与对比色）
-- 语言：简体中文 / 繁體中文 / English / 日本語 / 한국어 / Русский / Español / Français（8 种，约 280 键；键集合用 TS 类型锁死，漏翻是**编译错误**而不是运行期回退；切换即时生效，不需要重启）
+- 语言：简体中文 / 繁體中文 / English / 日本語 / 한국어 / Русский / Español / Français（8 种，约 540 键；键集合用 TS 类型锁死，漏翻是**编译错误**而不是运行期回退；切换即时生效，不需要重启）
 
 **扩展（VSC / DSH 兼容，带 Node 扩展宿主 + 内置商店）**
 
@@ -113,7 +114,7 @@ DSH 风格的仓库（带 `SKILL.md` 的技能包）会被识别为 `dsh` 类型
 
 发布资产按平台提供：
 
-- **Windows 安装程序（推荐）**：在 [Releases](https://github.com/lanche-furry/IRIXEN-Code/releases/latest) 下载 `IRIXEN Code_*_x64-setup.exe`，双击运行即可安装，会在开始菜单与桌面创建快捷方式，并自动补齐 WebView2 Runtime（Win10 需联网；Win11 自带）。安装程序内置 **English / 简体中文** 语言选择界面。
+- **Windows 安装程序（推荐）**：在 [Releases](https://github.com/lanche-furry/IRIXEN-Code/releases/latest) 下载 `IRIXEN.Code_*_x64_zh-CN.msi`（或 `_en-US.msi`），双击安装。**MSI** 会装到 `Program Files`、弹一次 UAC，创建开始菜单与桌面快捷方式，并自动补齐 WebView2 Runtime（Win10 需联网；Win11 自带）。从 Beta 0.3 及更早的 NSIS 版本升级，请先卸载旧版再装，否则机器上会有两份。
 - **Linux**：同一页下载 `IRIXEN_Code_*_amd64.AppImage`（`chmod +x` 后直接运行）或 `IRIXEN_Code_*_amd64.deb`（`sudo apt install ./…deb`）。需要系统提供 `libwebkit2gtk-4.1-0` 与 `libgtk-3-0`，deb 会自动拉依赖；AppImage 不带系统库。Ubuntu 22.04+ / Debian 12+ 可直接运行。
 
 > 需要 WebView2 Runtime：Win11 自带；Win10 由安装程序联网补齐。
@@ -126,7 +127,7 @@ DSH 风格的仓库（带 `SKILL.md` 的技能包）会被识别为 `dsh` 类型
 npm install
 npm run app:dev      # 开发（自动拉起 vite + tauri）
 npm run app:release  # 出 release 独立 exe（--no-bundle）
-npm run app:build    # 出 NSIS 安装包
+npm run app:build    # 出 MSI 安装包
 ```
 
 首次启动后：`设置 → 供应商`，填入 Base URL 与 API Key，点**测试连接**，模型列表会自动出现；然后在对话框上方选模型与思考强度。

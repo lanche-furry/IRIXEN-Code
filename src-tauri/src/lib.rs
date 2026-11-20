@@ -67,11 +67,6 @@ pub fn run() {
         return;
     }
     BOOT_AT.get_or_init(std::time::Instant::now);
-    // A fresh install leaves a marker in the install directory rather than the
-    // installer deleting the profile itself; see config::adopt_fresh_install.
-    if config::adopt_fresh_install() {
-        eprintln!("[irixen] fresh install: old profile archived as config.json.preinstall");
-    }
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         // Extension webview panels are served from their own origin instead of
@@ -207,6 +202,8 @@ pub fn run() {
             commands::agent_undo_turn,
             commands::agent_set_model,
             commands::set_default_effort,
+            commands::set_agent_access,
+            commands::agent_approve,
             commands::agent_busy,
             commands::agent_usage,
             commands::agent_reset_usage,

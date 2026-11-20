@@ -3,6 +3,7 @@
 //! Everything the UI can do that touches the OS goes through these commands:
 //! files, shell, git, workspace stats, providers, models, sessions, skills, MCP.
 
+use crate::agent::access::AccessMode;
 use crate::agent::models::ModelInfo;
 use crate::agent::types::{Attachment, Effort, ImageInput, Message};
 use crate::agent::{AgentEngine, SessionMeta};
@@ -288,12 +289,33 @@ pub fn set_default_effort(state: State<'_, AppState>, effort: Effort) -> Result<
     state.save()
 }
 
+/// Like `set_default_effort`: one enum, saved on its own, because the picker is
+/// clicked while a turn may already be running and rewriting the whole config
+/// (every provider key included) for that is needless risk.
 #[tauri::command]
-pub fn agent_busy(engine: State<'_, Arc<AgentEngine>>, id: String) -> bool {
-    engine.is_busy(&id)
+pub fn set_agent_access(state: State<'_, AppState>, access: AccessMode) -> Result<(), String> {
+    {
+        let mut cfg = crate::util::lock(&state.config);
+        if cfg.agent_access == access {
+            return Ok(());
+        }
+        cfg.agent_access = access;
+    }
+    state.save()
+}
+
+/// Answer a tool call the engine parked for approval. Returns false when the
+/// id is gone — stopped, timed out, or answered twice — which the UI shows as
+/// "this one already expired" rather than pretending it worked.
+#[tauri::command]
+pub fn agent_approve(engine: State<'_, Arc<AgentEngine>>, id: String, allow: bool) -> bool {
+    engine.resolve_approval(&id, allow)
 }
 
 #[tauri::command]
+pub fn agent_busy(engine: State<'_, Arc<AgentEngine>>, id: String) -> bool {
+    engine.is_busy(&id)
+}#[tauri::command]
 pub fn agent_usage(engine: State<'_, Arc<AgentEngine>>) -> crate::agent::meter::UsageReport {
     engine.usage()
 }
@@ -1324,8 +1346,11 @@ pub async fn app_download_update(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<crate::update::Downloaded, String> {
-    let proxy = crate::util::lock(&state.config).proxy.clone();
-    crate::update::download(&proxy, &app).await
+    let (proxy, lang) = {
+        let cfg = crate::util::lock(&state.config);
+        (cfg.proxy.clone(), cfg.language.clone())
+    };
+    crate::update::download(&proxy, &app, &lang).await
 }
 
 /// Start the downloaded installer and quit, so it can replace this exe.

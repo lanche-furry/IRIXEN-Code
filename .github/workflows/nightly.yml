@@ -66,20 +66,30 @@ jobs:
 
       # `tauri build` runs beforeBuildCommand (`npm run build`), which is the
       # type check plus the Vite bundle, then links the release exe and packs
-      # the NSIS installer from src-tauri/tauri.conf.json.
-      - name: Build NSIS installer
+      # the MSI installers from src-tauri/tauri.conf.json.
+      - name: Build MSI installers
         run: npm run tauri build
 
-      - name: Collect installer
+      - name: Collect installers
         shell: bash
         run: |
           set -euo pipefail
           date=$(date -u +%Y%m%d)
           echo "DATE=$date" >> "$GITHUB_ENV"
-          src=$(find src-tauri/target/release/bundle/nsis -name '*-setup.exe' | head -n1)
-          test -n "$src" || { echo "no installer produced"; exit 1; }
           mkdir -p out
-          cp "$src" "out/IRIXEN Code_nightly-${date}_x64-setup.exe"
+          found=0
+          for src in src-tauri/target/release/bundle/msi/*.msi; do
+            [ -f "$src" ] || continue
+            base=$(basename "$src")
+            case "$base" in
+              *_en-US.msi) culture=en-US ;;
+              *_zh-CN.msi) culture=zh-CN ;;
+              *) culture=${base%.msi} ;;
+            esac
+            cp "$src" "out/IRIXEN.Code_nightly-${date}_x64_${culture}.msi"
+            found=$((found + 1))
+          done
+          [ "$found" -gt 0 ] || { echo "no installer produced"; exit 1; }
 
       - name: Upload installer
         uses: actions/upload-artifact@v4
@@ -138,7 +148,7 @@ jobs:
       - name: Run unit tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --lib
 
-      # tauri.conf.json pins `bundle.targets` to nsis (the Windows product), so
+      # tauri.conf.json pins `bundle.targets` to msi (the Windows product), so
       # the Linux bundles have to be requested explicitly.
       - name: Build deb and AppImage
         run: npx tauri build --bundles deb,appimage
@@ -206,7 +216,7 @@ jobs:
             echo
             echo "## 安装 / Install"
             echo
-            echo "- **Windows x64**：\`IRIXEN Code_nightly-${date}_x64-setup.exe\`，双击安装 / \`IRIXEN Code_nightly-${date}_x64-setup.exe\` — run it to install"
+            echo "- **Windows x64**：\`IRIXEN.Code_nightly-${date}_x64_zh-CN.msi\`（或 \`en-US\`），双击安装 / \`IRIXEN.Code_nightly-${date}_x64_zh-CN.msi\` (or \`en-US\`) — run it to install"
             echo "- **Linux x64**：\`IRIXEN_Code_nightly-${date}_amd64.AppImage\` 或 \`.deb\` / \`IRIXEN_Code_nightly-${date}_amd64.AppImage\` or \`.deb\`"
             echo
             echo "## 最近提交 / Recent commits"

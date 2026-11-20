@@ -11,7 +11,7 @@ import { renderMarkdown } from './markdown';
 import { toast, popupMenu } from './toast';
 import { openHistory } from './history';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
-import type { AgentEvent, BridgeStatus, Effort, Message, ModelInfo, ProviderConfig } from '../types';
+import type { AgentAccess, AgentEvent, BridgeStatus, Effort, Message, ModelInfo, ProviderConfig } from '../types';
 
 /* ------------------------------------------------------------------ labels */
 
@@ -21,6 +21,19 @@ const THINK_HINT: Record<string, string> = {
   always_on: 'always-on',
   effort: 'effort',
   budget: 'budget',
+};
+
+/** i18n keys, not text: the picker is rebuilt on every config change and the
+ *  language can change underneath it. */
+const ACCESS_LABEL: Record<AgentAccess, string> = {
+  restricted: 'access.restricted',
+  auto: 'access.auto',
+  full: 'access.full',
+};
+const ACCESS_HINT: Record<AgentAccess, string> = {
+  restricted: 'access.hintRestricted',
+  auto: 'access.hintAuto',
+  full: 'access.hintFull',
 };
 
 /** Three ascending bars — the composer's at-a-glance effort gauge.
@@ -266,13 +279,38 @@ function renderToolbar() {
     h('span', { class: 'val' }, t('chat.attach')),
   );
 
+  // Access mode sits next to the effort knob because both answer "how much rope
+  // is this turn getting", and both are decided before typing, not after.
+  const access: AgentAccess = app.config?.agent_access ?? 'auto';
+  const accessPicker = h(
+    'button',
+    {
+      class: `picker${access === 'auto' ? '' : ' is-set'}${access === 'full' ? ' is-warn' : ''}`,
+      title: `${t('access.title')}\n${t(ACCESS_HINT[access])}`,
+      onClick: () => {
+        popupMenu(
+          accessPicker,
+          (['restricted', 'auto', 'full'] as AgentAccess[]).map((v) => ({
+            label: t(ACCESS_LABEL[v]),
+            value: v,
+            active: v === access,
+          })),
+          (v) => void setAccess(v as AgentAccess),
+          { search: false, width: 190, side: 'above' },
+        );
+      },
+    },
+    icon(access === 'restricted' ? 'lock' : access === 'full' ? 'unlock' : 'zap', 12),
+    h('span', { class: 'val' }, t(ACCESS_LABEL[access])),
+  );
+
   const ctx = h('span', {
     class: 'hint',
     style: { marginLeft: 'auto', fontFamily: 'var(--font-mono)' },
     title: t('chat.context'),
   }, `${fmtNum(app.contextTokens)} ${t('status.tokens')}`);
 
-  toolbarEl.append(modelPicker, effortPicker, attachBtn, ctx);
+  toolbarEl.append(modelPicker, effortPicker, accessPicker, attachBtn, ctx);
   if ((provider && ready && !app.model) || !ready) {
     modelPicker.style.borderColor = 'var(--warn)';
   }
@@ -626,6 +664,72 @@ function oneLine(s: string, max: number): string {
   return flat.length > max ? `${flat.slice(0, max)}…` : flat;
 }
 
+/* --------------------------------------------------------------- approvals */
+
+const APPROVAL_LABEL: Record<string, string> = {
+  write: 'approval.write',
+  command: 'approval.command',
+  git: 'approval.git',
+  mcp: 'approval.mcp',
+  read: 'approval.read',
+};
+
+/** The tool call is parked in Rust until one of these two buttons is pressed.
+ *  Everything the user needs to judge it is in the card: what, where, and how
+ *  much. The values are never prettified — a path is shown as the path. */
+function approvalCard(ev: Extract<AgentEvent, { kind: 'approval' }>): HTMLElement {
+  const allowBtn = h('button', { class: 'btn primary' }, t('approval.allow')) as HTMLButtonElement;
+  const denyBtn = h('button', { class: 'btn' }, t('approval.deny')) as HTMLButtonElement;
+  const actions = h('div', { class: 'approval-actions' }, allowBtn, denyBtn);
+
+  const card = h(
+    'div',
+    { class: 'approval-card' },
+    h(
+      'div',
+      { class: 'approval-head' },
+      icon('alert', 13),
+      h('span', { class: 'approval-title' }, t('approval.title')),
+      h('span', { class: 'approval-tool' }, ev.tool),
+    ),
+    h(
+      'div',
+      { class: 'approval-body' },
+      h(
+        'div',
+        { class: 'approval-line' },
+        h('span', null, t(APPROVAL_LABEL[ev.action] || 'approval.read')),
+        h('code', { class: 'approval-target' }, ev.target),
+      ),
+      ev.detail ? h('div', { class: 'approval-detail' }, ev.detail) : null,
+    ),
+    actions,
+  );
+
+  const settle = async (allow: boolean) => {
+    allowBtn.disabled = true;
+    denyBtn.disabled = true;
+    let ok = false;
+    try {
+      ok = await api.approve(ev.id, allow);
+    } catch (e) {
+      toast(errText(e), 'err');
+    }
+    clear(actions);
+    actions.append(
+      h(
+        'span',
+        { class: `approval-state${ok ? (allow ? ' ok' : '') : ' expired'}` },
+        ok ? (allow ? t('approval.allowed') : t('approval.denied')) : t('approval.expired'),
+      ),
+    );
+    card.classList.add(ok && allow ? 'is-allowed' : 'is-denied');
+  };
+  allowBtn.addEventListener('click', () => void settle(true));
+  denyBtn.addEventListener('click', () => void settle(false));
+  return card;
+}
+
 /* ---------------------------------------------------------------- events */
 
 function handleEvent(ev: AgentEvent) {
@@ -725,6 +829,14 @@ function handleEvent(ev: AgentEvent) {
         `${t('chat.compressed')} · ${fmtNum(r.tokens_before)} → ${fmtNum(r.tokens_after)} tokens`,
       );
       renderToolbar();
+      break;
+    }
+    case 'approval': {
+      // Its own card in the log, not a row inside the assistant message: the
+      // turn is frozen until this is answered, so it must not scroll away with
+      // the text that happens to be streaming.
+      logEl?.append(approvalCard(ev));
+      scrollDown(true);
       break;
     }
     case 'done': {
@@ -910,8 +1022,22 @@ async function setEffort(effort: Effort) {
   }
 }
 
-function pickModel(anchor: HTMLElement) {
-  // Merely opening the picker is not consent to start a local server or
+/** Switching modes does not retag the turn already running: the backend reads
+ *  the mode per tool call, so a turn that is halfway through will start asking
+ *  (or stop asking) at the next call. Saying so once is cheaper than a bug
+ *  report that says "I turned it off and it still asked". */
+async function setAccess(access: AgentAccess) {
+  if (app.config) app.config.agent_access = access;
+  renderToolbar();
+  try {
+    await api.setAgentAccess(access);
+  } catch (e) {
+    toast(errText(e), 'err');
+  }
+  if (access === 'full') toast(t('access.fullWarn'), 'info', 6000);
+}
+
+function pickModel(anchor: HTMLElement) {  // Merely opening the picker is not consent to start a local server or
   // hidden browser windows. Web2API models appear after the user enables
   // "start on launch" or explicitly picks one (which starts it on demand).
   const items = app.models.map((m) => ({

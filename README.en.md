@@ -67,9 +67,10 @@ The layout is deliberately **not** the VS Code "three permanent columns": a **le
 - Lazy file tree, full-workspace search (respects `ignore` rules), Git panel (stage / commit / push / pull / branch / diff)
 - **Review panel**: scan all workspace changes at a glance (`git status` + diff stats), then hand "what changed and is it risky" plus the current diff to the agent in one click. Line-level diffs are colored red/green and linked with the status bar and quick-bar badges
 - **Security review**: the "Security review" button only states the intent — the agent runs `security_scan` (a native tool with a fixed rule table: cloud credentials, private-key blocks, disabled TLS verification, shell and SQL injection, world-writable files, key material, CI actions not pinned to a SHA), then reads the code around every hit to decide whether it is reachable. Secrets are masked in the output (4 characters of head and tail); the scanner enumerates, the model judges
+- **Access modes**: three levels above the composer — "Restricted" asks before every write and command and makes paths outside the workspace unreachable, "Auto-approve" works freely inside the workspace and asks only when leaving it, and "Full access" asks nothing and can read or write outside it. The agent parks on an approval card until you answer, and Stop also releases any pending approval
 - Workspace stats (file count / code lines / size / per-extension distribution / largest file) and API usage (calls, input/output, reasoning, cache hits, grouped by model and session)
 - Themes: Dark / Light / **Custom** (override any CSS variable; `--accent-soft` and the contrast color are derived automatically)
-- Languages: Simplified Chinese / Traditional Chinese / English / Japanese / Korean / Russian / Spanish / French (8 locales, ~280 keys; the key set is locked by a TS type, so a missing translation is a **compile error**, not a runtime fallback; switching is instant and needs no restart)
+- Languages: Simplified Chinese / Traditional Chinese / English / Japanese / Korean / Russian / Spanish / French (8 locales, ~540 keys; the key set is locked by a TS type, so a missing translation is a **compile error**, not a runtime fallback; switching is instant and needs no restart)
 
 **Extensions (VSC / DSH compatible, with a Node extension host + a built-in store)**
 
@@ -113,7 +114,7 @@ DSH-style repos (skill packs with a `SKILL.md`) are recognized as type `dsh` and
 
 Release assets are published per platform:
 
-- **Windows installer (recommended)**: on [Releases](https://github.com/lanche-furry/IRIXEN-Code/releases/latest) download `IRIXEN Code_*_x64-setup.exe` and run it. It creates Start Menu / desktop shortcuts and bootstraps the WebView2 Runtime (Win10 needs internet; Win11 has it built in). The installer has a built-in **English / Simplified Chinese** language-selection screen.
+- **Windows installer (recommended)**: on [Releases](https://github.com/lanche-furry/IRIXEN-Code/releases/latest) download `IRIXEN.Code_*_x64_en-US.msi` (or `_zh-CN.msi`) and run it. The **MSI** installs under `Program Files`, shows a UAC prompt once, creates Start Menu / desktop shortcuts and bootstraps the WebView2 Runtime (Win10 needs internet; Win11 has it built in). Upgrading from Beta 0.3 or an earlier NSIS build? Uninstall the old one first, or the machine ends up with two copies.
 - **Linux**: from the same page take `IRIXEN_Code_*_amd64.AppImage` (`chmod +x`, then run) or `IRIXEN_Code_*_amd64.deb` (`sudo apt install ./…deb`). The system must provide `libwebkit2gtk-4.1-0` and `libgtk-3-0`; the deb pulls them in, the AppImage does not bundle system libraries. Ubuntu 22.04+ / Debian 12+ run it directly.
 
 > WebView2 Runtime is required: Win11 has it built in; Win10 gets it via the installer over the internet.
@@ -126,7 +127,7 @@ Daily builds live in the [nightly](https://github.com/lanche-furry/IRIXEN-Code/r
 npm install
 npm run app:dev      # develop (auto-starts vite + tauri)
 npm run app:release  # build the standalone release exe (--no-bundle)
-npm run app:build    # build the NSIS installer
+npm run app:build    # build the MSI installer
 ```
 
 After first launch: go to `Settings → Providers`, enter the Base URL and API Key, click **Test connection**, and the model list appears automatically; then pick a model and a thinking-effort level above the chat box.

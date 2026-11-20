@@ -3,6 +3,7 @@
 //! Owns sessions, drives the tool loop, streams normalized events to the
 //! webview, meters usage and schedules context compression.
 
+pub mod access;
 pub mod audit;
 pub mod context;
 pub mod meter;
@@ -66,6 +67,11 @@ pub struct AgentEngine {
     /// Originals of every file the running turn rewrites, keyed by turn id.
     turns: Mutex<HashMap<u64, snapshots::Turn>>,
     turn_seq: AtomicU64,
+    /// Tool calls parked until the user answers. Keyed by approval id; the
+    /// session is stored alongside the sender so `stop` can reject only the
+    /// turns it was asked to stop — sessions run concurrently.
+    pending: Mutex<HashMap<String, (String, tokio::sync::oneshot::Sender<bool>)>>,
+    approval_seq: AtomicU64,
 }
 
 impl AgentEngine {
@@ -88,6 +94,8 @@ impl AgentEngine {
             active: Mutex::new(None),
             turns: Mutex::new(HashMap::new()),
             turn_seq: AtomicU64::new(1),
+            pending: Mutex::new(HashMap::new()),
+            approval_seq: AtomicU64::new(1),
         });
         engine.load_persisted();
         engine
@@ -255,7 +263,15 @@ impl AgentEngine {
 
     /// Capture one file before a write tool touches it, then tell the UI what
     /// the turn has changed so far. Returns early for reads and MCP calls.
-    fn capture_write(&self, session: &str, turn: u64, name: &str, args: &serde_json::Value, workspace: &str) {
+    fn capture_write(
+        &self,
+        session: &str,
+        turn: u64,
+        name: &str,
+        args: &serde_json::Value,
+        workspace: &str,
+        allow_outside: bool,
+    ) {
         if !matches!(name, "write_file" | "replace_in_file") {
             return;
         }
@@ -263,7 +279,7 @@ impl AgentEngine {
             return;
         };
         let ws = std::path::Path::new(workspace);
-        let Ok(abs) = tools::resolve(ws, raw) else {
+        let Ok(abs) = tools::resolve(ws, raw, allow_outside) else {
             return;
         };
         let (files, undoable, reason) = {
@@ -319,6 +335,60 @@ impl AgentEngine {
     pub fn stop(&self, id: &str) {
         if let Some(flag) = lock(&self.stops).get(id).cloned() {
             flag.store(true, Ordering::SeqCst);
+        }
+        // A turn parked on an approval would otherwise sit there until the
+        // timeout: stopping must reach the wait too, or "stop" means "stop in
+        // fifteen minutes".
+        let mut pending = lock(&self.pending);
+        let doomed: Vec<String> = pending
+            .iter()
+            .filter(|(_, (session, _))| session.as_str() == id)
+            .map(|(key, _)| key.clone())
+            .collect();
+        for key in doomed {
+            if let Some((_, tx)) = pending.remove(&key) {
+                let _ = tx.send(false);
+            }
+        }
+    }
+
+    /// Answer a parked tool call. Returns false when the id is unknown — the
+    /// turn may have timed out, been stopped, or been approved twice.
+    pub fn resolve_approval(&self, id: &str, allow: bool) -> bool {
+        let entry = lock(&self.pending).remove(id);
+        match entry {
+            Some((_, tx)) => tx.send(allow).is_ok(),
+            None => false,
+        }
+    }
+
+    /// Emit an approval request and wait for the answer. The lock is not held
+    /// across the await: a stalled turn must not block `agent_approve` from
+    /// reaching it, which is the whole point of the channel.
+    async fn ask_approval(&self, session: &str, req: access::Request) -> bool {
+        let id = format!("ap{}", self.approval_seq.fetch_add(1, Ordering::SeqCst));
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        lock(&self.pending).insert(id.clone(), (session.to_string(), tx));
+        self.emit(AgentEvent::Approval {
+            session: session.to_string(),
+            id: id.clone(),
+            tool: req.tool,
+            action: req.kind.to_string(),
+            target: req.target,
+            detail: req.detail,
+        });
+        match tokio::time::timeout(std::time::Duration::from_secs(900), rx).await {
+            Ok(Ok(allow)) => allow,
+            // Timeout or a dropped sender: treat as a refusal and say so, so
+            // the model does not read silence as permission.
+            _ => {
+                lock(&self.pending).remove(&id);
+                self.emit(AgentEvent::Status {
+                    session: session.to_string(),
+                    text: "等待确认超时（15 分钟），已按拒绝处理。".into(),
+                });
+                false
+            }
         }
     }
 
@@ -648,6 +718,8 @@ impl AgentEngine {
                     "list_dir",
                     &serde_json::json!({ "path": a.name, "depth": 2 }),
                     std::path::Path::new(&a.path),
+                    // The user attached this path by hand, whatever the mode.
+                    true,
                 )
                 .await
                 .unwrap_or_default();
@@ -679,6 +751,10 @@ impl AgentEngine {
         let auto_skills = lock(&self.config).agent.auto_skills;
         let matched = self.skills.match_for(&prompt, auto_skills);
         let mut system = system_prompt;
+        // The model has to know when a call will stop and wait, or it spends
+        // the turn narrating a prompt the user never saw.
+        system.push_str("\n\n# 访问模式（由用户控制，你不能自行更改）\n");
+        system.push_str(lock(&self.config).agent_access.prompt_note());
         if !matched.is_empty() {
             system.push_str("\n\n# 当前激活的 Skill 指引（必须遵守）\n");
             for s in &matched {
@@ -949,23 +1025,41 @@ impl AgentEngine {
         name: &str,
         args: &serde_json::Value,
     ) -> (String, bool) {
+        let (workspace, mode) = {
+            let cfg = lock(&self.config);
+            (cfg.workspace.clone().unwrap_or_default(), cfg.agent_access)
+        };
+        let ws = (!workspace.is_empty()).then(|| std::path::Path::new(workspace.as_str()));
+
+        // Ask before doing, not after: an approval that arrives with the change
+        // already on disk is a notification, not a decision.
+        let allow_outside = match access::decide(mode, name, args, ws) {
+            access::Decision::Allow => mode == access::AccessMode::Full,
+            access::Decision::Ask(req) => {
+                if !self.ask_approval(session, req).await {
+                    return (access::denied_note(name), true);
+                }
+                // An approved call may be the approved *outside* path, so the
+                // path layer gets the wider bound too — unless the mode still
+                // forbids it, which in practice never reaches here.
+                mode != access::AccessMode::Restricted
+            }
+            access::Decision::Deny(reason) => return (reason, true),
+        };
+
         if name.starts_with("mcp__") {
             match self.mcp.call(name, args).await {
                 Ok(out) => (out, false),
                 Err(e) => (e, true),
             }
         } else {
-            let workspace = {
-                let cfg = lock(&self.config);
-                cfg.workspace.clone().unwrap_or_default()
-            };
-            if workspace.is_empty() {
+            let Some(ws) = ws else {
                 return ("没有打开工作区。请先在左上角打开一个文件夹。".into(), true);
-            }
+            };
             // Snapshot before the tool runs: by the time it returns, the old
             // bytes are gone.
-            self.capture_write(session, turn, name, args, &workspace);
-            match tools::execute_native(name, args, std::path::Path::new(&workspace)).await {
+            self.capture_write(session, turn, name, args, &workspace, allow_outside);
+            match tools::execute_native(name, args, ws, allow_outside).await {
                 Ok(out) => (out, false),
                 Err(e) => (e, true),
             }

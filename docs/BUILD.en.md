@@ -31,7 +31,7 @@ These directories are listed in `.gitignore` and never enter version control.
 npm run check                 # cargo check (produces no executable)
 npm run app:dev               # tauri dev (vite + window, development only)
 npm run app:release           # tauri build --no-bundle (release exe only)
-npm run app:build             # tauri build (NSIS installer)
+npm run app:build             # tauri build (MSI installer)
 node scripts/build.mjs tauri dev --no-watch
 ```
 
@@ -76,7 +76,7 @@ npx tauri build
 
 ## Linux builds
 
-Off Windows there is exactly one supported path, and Linux bundles must be named explicitly — `bundle.targets` in `tauri.conf.json` says `["nsis"]`:
+Off Windows there is exactly one supported path, and Linux bundles must be named explicitly — `bundle.targets` in `tauri.conf.json` says `["msi"]`:
 
 ```bash
 npx tauri build --bundles deb,appimage
@@ -116,12 +116,12 @@ npm run icons
 
 ```
 E:/irixen-build/release/irixen-code.exe
-E:/irixen-build/release/bundle/nsis/IRIXEN Code_0.1.0-beta.1_x64-setup.exe
+E:/irixen-build/release/bundle/msi/IRIXEN Code_0.4.0-beta.1_x64_zh-CN.msi
 ```
 
 `CARGO_TARGET_DIR` is pinned to the drive root at `E:/irixen-build` (the path must not contain spaces, or MinGW's `windres` preprocessing fails). Commands like `node scripts/build.mjs tauri dev/build` have to go through the Tauri CLI: a bare `cargo build` has no build context, so it loads the `devUrl` at `http://localhost:5173/` instead of the embedded `dist/`, and the window shows "localhost refused to connect".
 
-**No debug builds.** `build.mjs` disables `dev` / `run`, a bare `build` gets `--release` appended, and `cargo check` only type-checks without leaving an executable. Releases always go through `npm run app:release` (exe only) or `npm run app:build` (adds the NSIS package). The version shown in the UI is `Beta 0.1` throughout, while the package metadata stays a valid semver `0.1.0-beta.1`.
+**No debug builds.** `build.mjs` disables `dev` / `run`, a bare `build` gets `--release` appended, and `cargo check` only type-checks without leaving an executable. Releases always go through `npm run app:release` (exe only) or `npm run app:build` (adds the MSI package). The version shown in the UI is `Beta 0.1` throughout, while the package metadata stays a valid semver `0.1.0-beta.1`.
 
 The release profile is tuned for size:
 
@@ -147,7 +147,7 @@ The routine when chasing a layout problem: measure `getBoundingClientRect()` for
 
 ### Test instances must isolate the config directory (`IRIXEN_HOME`)
 
-The window reads the **real user profile** at `%APPDATA%\IRIXEN Code` (`config::base_dir`). Click through the first-run wizard over CDP, change the theme, pick a provider, and you have just written that real profile; install the NSIS package afterwards and the installed app believes it is "already set up", so **the first-run setup never appears** — which looks exactly like an install that skipped initialisation.
+The window reads the **real user profile** at `%APPDATA%\IRIXEN Code` (`config::base_dir`). Click through the first-run wizard over CDP, change the theme, pick a provider, and you have just written that real profile; install the MSI package afterwards and it still will not be reset: the app believes it is "already set up", so **the first-run setup never appears** — which looks exactly like an install that skipped initialisation (MSI no longer clears the profile, see below).
 
 So any automated or manual verification must point the config at a scratch directory:
 
@@ -161,32 +161,20 @@ IRIXEN_HOME="E:/irixen-build/_probe-home" \
 
 ### Installer and leftover profile
 
-`src-tauri/installer.nsh` is hooked into NSIS through `bundle.windows.nsis.installerHooks`. **The installer does not touch `%APPDATA%`** — the app does that itself:
+The Windows package is an **MSI** (WiX), no longer NSIS. `bundle.targets = ["msi"]`, and `bundle.windows.wix.language = ["en-US", "zh-CN"]` produces one installer per culture: the wizard language differs, the payload does not.
 
-- **Clean install** (`$UpdateMode <> 1` and no exe in `$INSTDIR`): the installer writes an empty `first-run.marker` inside **its own installation directory**. On startup (`config::adopt_fresh_install`) the app consumes it: it backs `config.json` up to `config.json.preinstall`, deletes the live config and `model-cache.json`, and the wizard therefore runs. An over-the-top upgrade writes no marker, so every setting is preserved.
-- **Uninstall with "delete application data" ticked**: removes both `%APPDATA%\IRIXEN Code` (the real profile) and `%LOCALAPPDATA%\com.irixen.code` (the WebView2 cache). The template's built-in cleanup only knows the bundle id and cannot reach the `IRIXEN Code` directory.
+The switch is not a matter of taste. The old NSIS hooks copied and deleted this app's own config files under `%APPDATA%`, and "an installer fiddling with config files under AppData" is the textbook signature of the Hijacker family — Avira flagged the signed Beta 0.2 installer as `TR/Hijacker.Gen` (1 of 28 engines), and Beta 0.1 carried the same family name. An MSI only registers and installs its own components; there is nowhere to write that kind of logic.
 
-Why the split: an installer that copies and deletes other directories' config files under `%APPDATA%` is textbook "hijacker" behaviour to generic antivirus heuristics — Avira flagged the signed Beta 0.2 installer as `TR/Hijacker.Gen` (1 of 28 engines), and Beta 0.1 got the same family name. An app managing its own profile is unremarkable.
-
-Machines that are already broken do not need a reinstall: Settings → About → Maintenance → **Reset to defaults** (`config_reset` backs the old file up to `config.json.bak-<timestamp>` and reloads the window, so the wizard reappears), or **Run first-run setup again** from the palette.
-
-## Continuous integration
-
-Three workflows with non-overlapping jobs:
-
-| File | Trigger | What it does |
-| --- | --- | --- |
-| `.github/workflows/ci.yml` | push to `main`, any PR, manual | Fast check on both platforms (ubuntu-22.04 + windows-latest): `npm run build` (tsc + vite), `cargo check --all-targets`, `cargo test --lib`. **No bundling, no publishing** |
-| `.github/workflows/nightly.yml` | daily at 12:07 UTC (20:07 Beijing, deliberately off the hour), manual | Bundles both platforms and publishes to the rolling `nightly` **pre-release** channel |
-| `.github/workflows/release.yml` | pushing a `Beta*` / `v*` tag | Bundles both platforms and publishes to the **latest** stable channel |
-
-`ci.yml` must run Windows: the interesting code sits behind `#[cfg(windows)]`, and a Linux-only run would not even compile a line of it. Conversely the Linux job also runs `cargo test`, because it produces results fastest and can stop a logic error before bundling.
+- **Neither install nor uninstall touches `%APPDATA%`**: config, sessions and keys survive. For a clean start, delete `%APPDATA%\IRIXEN Code` and the WebView2 cache `%LOCALAPPDATA%\com.irixen.code`, or use "reset to defaults" in Settings.
+- **Upgrades are over-the-top**: the MSI handles older versions through its `UpgradeCode`, so uninstalling first is not required. In-app "download and install" verifies the SHA-256, runs `msiexec /i <msi> /passive /norestart`, then quits.
+- **It needs administrator rights**: an MSI is per-machine and installs under `Program Files`, so Windows shows a UAC prompt. That differs from the old per-user NSIS build — uninstall Beta 0.3 or earlier first, or the machine ends up with two copies.
+- **No "delete app data" checkbox on uninstall**: the MSI removes only what it installed. The profile stays until you remove it.
 
 `nightly` is a pre-release and its tag contains no digits, so `is_version_tag` excludes it — a nightly can never pop an upgrade prompt at regular users.
 
 ## Windows signing
 
-After bundling, `release.yml` calls `scripts/sign-windows.ps1` to add an Authenticode signature (SHA256 + DigiCert timestamp) to `irixen-code.exe` and the NSIS installer. The certificate comes from two repository secrets:
+After bundling, `release.yml` calls `scripts/sign-windows.ps1` to add an Authenticode signature (SHA256 + DigiCert timestamp) to `irixen-code.exe` and the MSI installers. The certificate comes from two repository secrets:
 
 | Secret | Contents |
 | --- | --- |
@@ -228,7 +216,7 @@ git push origin main
 git tag Beta0.2 && git push origin Beta0.2
 ```
 
-Pushing the tag triggers `.github/workflows/release.yml`: Windows builds NSIS, Linux builds deb + AppImage, and the result is published to the **latest channel** (`--latest`, non-prerelease), so the in-app "check for updates" treats it as the current version. Notes come from `docs/release-notes/<tag>.md`; if that file does not exist, GitHub's generated notes are used.
+Pushing the tag triggers `.github/workflows/release.yml`: Windows builds MSI, Linux builds deb + AppImage, and the result is published to the **latest channel** (`--latest`, non-prerelease), so the in-app "check for updates" treats it as the current version. Notes come from `docs/release-notes/<tag>.md`; if that file does not exist, GitHub's generated notes are used.
 
 Publishing also writes the output of `sha256sum *` to `checksums.txt` and uploads it. **That file is the prerequisite for in-app one-click updates**: "Download and install" on the About page fetches it first and verifies the downloaded installer against the SHA256 recorded there; a mismatch deletes the file and reports an error, with no "continue anyway" option. The `nightly` channel produces it too.
 

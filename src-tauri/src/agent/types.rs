@@ -200,6 +200,20 @@ pub enum AgentEvent {
     },
     Done { session: String, text: String },
     Error { session: String, text: String },
+    /// A tool call is parked until the user answers. `action` is one of
+    /// `write`, `command`, `git`, `mcp`, `read`; the renderer phrases the
+    /// question in the user's language instead of echoing `target`.
+    ///
+    /// Not named `kind`: `kind` is already this enum's serde tag, and a field
+    /// with the same name would emit the key twice.
+    Approval {
+        session: String,
+        id: String,
+        tool: String,
+        action: String,
+        target: String,
+        detail: String,
+    },
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

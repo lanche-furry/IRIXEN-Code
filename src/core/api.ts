@@ -9,7 +9,7 @@ import type {
   NodeInfo, ProviderConfig, RuntimeCommand, SearchHit, Skill, SnippetRow, StatusItem,
   UsageReport, WorkspaceStats, Attachment, SessionMeta, ProbeReport,
   WebSource, WebTestRow, WebSessionInfo, RunnerOption, RunInfo, WebviewPanel,
-  Downloaded, DownloadProgress,
+  Downloaded, DownloadProgress, AgentAccess,
   TermShell, TermInfo, TreeItemRow, PreviewProbe,
 } from '../types';
 
@@ -60,6 +60,9 @@ export const api = {
   setModel: (id: string, providerId?: string, model?: string, effort?: Effort) =>
     invoke<void>('agent_set_model', { id, providerId, model, effort }),
   setDefaultEffort: (effort: Effort) => invoke<void>('set_default_effort', { effort }),
+  setAgentAccess: (access: AgentAccess) => invoke<void>('set_agent_access', { access }),
+  /** Answer a parked tool call. False means it already expired. */
+  approve: (id: string, allow: boolean) => invoke<boolean>('agent_approve', { id, allow }),
   busy: (id: string) => invoke<boolean>('agent_busy', { id }),
   usage: () => invoke<UsageReport>('agent_usage'),
   resetUsage: () => invoke<void>('agent_reset_usage'),

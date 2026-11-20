@@ -62,35 +62,52 @@ jobs:
 
       # `tauri build` runs beforeBuildCommand (`npm run build`) itself, so the
       # type check is covered here too.
-      - name: Build NSIS installer
+      #
+      # MSI, not NSIS: generic antivirus heuristics have fired on three NSIS
+      # builds in a row, and WiX only runs on Windows — which is why this job
+      # builds the installer and the Linux job cannot.
+      - name: Build MSI installers
         run: npm run tauri build
 
       # Signing happens after packaging: the certificate is a release concern
       # and a local `npm run app:build` must keep working without one. The exe
       # inside the installer stays unsigned — sign it before bundling with
       # bundle.windows.signCommand if that ever matters.
-      - name: Sign the exe and the installer
+      - name: Sign the exe and the installers
         if: env.SIGN_PFX != ''
         shell: pwsh
         run: |
           ./scripts/sign-windows.ps1 `
             src-tauri/target/release/irixen-code.exe `
-            src-tauri/target/release/bundle/nsis/*-setup.exe
+            src-tauri/target/release/bundle/msi/*.msi
 
       - name: Note unsigned build
         if: env.SIGN_PFX == ''
         shell: bash
         run: echo "::warning::WINDOWS_SIGN_PFX is not set — publishing an unsigned installer"
 
-      - name: Collect installer
+      # One MSI per WiX language (en-US, zh-CN). The culture goes into the asset
+      # name because the updater picks the wizard matching the app's own UI
+      # language, and because two files named after the product would collide.
+      - name: Collect installers
         shell: bash
         run: |
           set -euo pipefail
           version=$(node -p "require('./package.json').version")
-          src=$(find src-tauri/target/release/bundle/nsis -name '*-setup.exe' | head -n1)
-          test -n "$src" || { echo "no installer produced"; exit 1; }
           mkdir -p out
-          cp "$src" "out/IRIXEN.Code_${version}_x64-setup.exe"
+          found=0
+          for src in src-tauri/target/release/bundle/msi/*.msi; do
+            [ -f "$src" ] || continue
+            base=$(basename "$src")
+            case "$base" in
+              *_en-US.msi) culture=en-US ;;
+              *_zh-CN.msi) culture=zh-CN ;;
+              *) culture=${base%.msi} ;;
+            esac
+            cp "$src" "out/IRIXEN.Code_${version}_x64_${culture}.msi"
+            found=$((found + 1))
+          done
+          [ "$found" -gt 0 ] || { echo "no installer produced"; exit 1; }
           ls -l out
 
       - name: Upload installer

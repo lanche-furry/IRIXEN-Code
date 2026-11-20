@@ -637,6 +637,11 @@ pub struct AppConfig {
     /// fresh installs start here; an explicit per-session pick still wins.
     #[serde(default)]
     pub effort: Effort,
+    /// How much the agent may do without asking. See `agent::access` for the
+    /// ladder; `auto` is the default because prompting for every edit inside
+    /// the folder the user just opened teaches them to approve blindly.
+    #[serde(default)]
+    pub agent_access: crate::agent::access::AccessMode,
     #[serde(default)]
     pub agent: AgentConfig,
     #[serde(default)]
@@ -791,6 +796,7 @@ impl Default for AppConfig {
             providers: default_providers(),
             active: None,
             effort: Effort::Auto,
+            agent_access: crate::agent::access::AccessMode::Auto,
             agent: AgentConfig::default(),
             mcp_servers: Vec::new(),
             skills: SkillsConfig::default(),
@@ -830,54 +836,18 @@ pub fn config_path() -> PathBuf {
     base_dir().join("config.json")
 }
 
-/// Empty file the installer drops inside its *own* install directory on a fresh
-/// install (see `installer.nsh`). Named here so the two sides cannot drift.
-pub const FIRST_RUN_MARKER: &str = "first-run.marker";
-
-/// Reset the profile when this launch is the first one after a fresh install.
-///
-/// The installer used to delete `%APPDATA%\IRIXEN Code\config.json` itself, and
-/// generic antivirus heuristics read exactly that as a hijacker: Avira flagged
-/// the signed Beta 0.2 installer as `TR/Hijacker.Gen` while the other 27 engines
-/// were clean. An application managing its own profile is unremarkable, so the
-/// work moved here — the installer now only writes an empty marker next to its
-/// own binary, inside a directory it is already allowed to write.
-///
-/// Returns true when the profile was reset, so the caller can log it.
-pub fn adopt_fresh_install() -> bool {
-    let Ok(exe) = std::env::current_exe() else {
-        return false;
-    };
-    let Some(dir) = exe.parent() else {
-        return false;
-    };
-    if !consume_marker(dir) {
-        return false;
-    }
-    archive_profile();
-    true
-}
-
-/// `dir` is the directory holding the running binary: the install directory for
-/// a packaged build, the target directory for a dev build (which never has a
-/// marker). Deleting it first means a failed archive cannot reset on every boot.
-fn consume_marker(dir: &Path) -> bool {
-    std::fs::remove_file(dir.join(FIRST_RUN_MARKER)).is_ok()
-}
-
-/// Keep the old profile as `config.json.preinstall` — the same name the
-/// installer used to write — and drop the live copy so the wizard runs again.
-fn archive_profile() {
-    let dir = base_dir();
-    let live = dir.join("config.json");
-    if live.exists() {
-        let _ = std::fs::copy(&live, dir.join("config.json.preinstall"));
-        let _ = std::fs::remove_file(&live);
-    }
-    // Cached model lists describe the old provider set; without a profile they
-    // are meaningless and would be re-fetched anyway.
-    let _ = std::fs::remove_file(dir.join("model-cache.json"));
-}
+// A fresh install used to reset the live profile: the NSIS installer dropped an
+// empty `first-run.marker` next to its own binary and this module consumed it,
+// which kept antivirus heuristics from reading "the installer deleted
+// %APPDATA%" as hijacker behaviour.
+//
+// The MSI installer cannot carry that hook without a custom WiX action, and the
+// marker itself is impossible now: an MSI install is per-machine under
+// `C://Program Files`, which the unelevated app cannot write to, while a marker
+// written unconditionally would wipe the profile on every upgrade — strictly
+// worse than a stale one. So the reset is gone. Install and uninstall both
+// leave `%APPDATA%\IRIXEN Code` alone; a clean start is an explicit
+// `rm -r %APPDATA%\IRIXEN Code` (spelled out in the Beta 0.4 notes).
 
 pub fn skills_dir() -> PathBuf {
     base_dir().join("skills")
@@ -1097,21 +1067,6 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }
-
-    /// The marker is the whole handshake between installer and app: a dev build
-    /// has no install directory, so it must never reset a profile by accident.
-    #[test]
-    fn the_fresh_install_marker_is_consumed_exactly_once() {
-        let dir = scratch("marker");
-        assert!(!consume_marker(&dir), "no marker, nothing to do");
-
-        std::fs::write(dir.join(FIRST_RUN_MARKER), "").unwrap();
-        assert!(consume_marker(&dir), "a fresh install is detected");
-        assert!(
-            !dir.join(FIRST_RUN_MARKER).exists(),
-            "the marker is removed, not merely read — otherwise every launch resets"
-        );
-        assert!(!consume_marker(&dir), "the second launch leaves the profile alone");
 
         let _ = std::fs::remove_dir_all(&dir);
     }

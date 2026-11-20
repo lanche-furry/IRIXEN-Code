@@ -2,6 +2,9 @@
 
 export type Protocol = 'openai' | 'anthropic' | 'gemini';
 export type Effort = 'auto' | 'off' | 'minimal' | 'low' | 'medium' | 'high';
+
+/** How much the agent may do without asking. Mirrors `agent::access`. */
+export type AgentAccess = 'restricted' | 'auto' | 'full';
 export type Role = 'system' | 'user' | 'assistant' | 'tool';
 
 export interface ProviderConfig {
@@ -182,6 +185,8 @@ export interface AppConfig {
   active: ActiveSelection | null;
   /** Sticky default for the thinking-effort picker (new sessions start here). */
   effort: Effort;
+  /** Sticky access mode: restricted / auto / full. */
+  agent_access?: AgentAccess;
   agent: AgentConfig;
   mcp_servers: McpServerConfig[];
   skills: SkillsConfig;
@@ -340,7 +345,18 @@ export type AgentEvent =
       reason: string | null;
     }
   | { kind: 'done'; session: string; text: string }
-  | { kind: 'error'; session: string; text: string };
+  | { kind: 'error'; session: string; text: string }
+  /** A tool call is parked until the user answers; reply with `agent_approve`. */
+  | {
+      kind: 'approval';
+      session: string;
+      id: string;
+      tool: string;
+      /** `write` | `command` | `git` | `mcp` | `read` */
+      action: string;
+      target: string;
+      detail: string;
+    };
 
 /** Where a finished download landed, plus whether its hash was checked. */
 export interface Downloaded {

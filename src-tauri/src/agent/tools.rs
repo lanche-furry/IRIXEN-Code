@@ -2,8 +2,9 @@
 //!
 //! Deliberately small and sharp: eight tools that cover read → edit → verify,
 //! plus one that enumerates a security posture so the model does not have to.
-//! Every tool confines writes to the workspace root and caps its own output so
-//! a single call can never blow up the context window.
+//! Every tool confines writes to the workspace root — unless the user chose the
+//! "full access" mode, which is the one thing that flag means — and caps its
+//! own output so a single call can never blow up the context window.
 
 use serde_json::{json, Value};
 use std::path::{Component, Path, PathBuf};
@@ -153,11 +154,34 @@ pub fn native_tool_specs() -> Vec<ToolSpec> {
     ]
 }
 
-/// Resolve a user-supplied path and refuse anything outside the workspace.
-pub(crate) fn resolve(workspace: &Path, raw: &str) -> Result<PathBuf, String> {
+/// Resolve a user-supplied path. `allow_outside` is the access mode's answer to
+/// "may this turn leave the workspace" — the refusal lives here as well as in
+/// `access::decide` because a mode is a promise, and the path layer is where a
+/// promise is either kept or broken.
+pub(crate) fn resolve(workspace: &Path, raw: &str, allow_outside: bool) -> Result<PathBuf, String> {
     let ws = workspace
         .canonicalize()
         .unwrap_or_else(|_| workspace.to_path_buf());
+    let out = absolute(&ws, raw);
+    if !allow_outside && !out.starts_with(&ws) {
+        return Err(format!(
+            "refused: '{raw}' resolves outside the workspace. Tell the user what you need there, \
+             and let them switch the composer to 自动审批 or 完全访问."
+        ));
+    }
+    Ok(out)
+}
+
+/// True when `raw` stays inside the workspace, after resolving `..` by hand so
+/// a traversal cannot smuggle itself past a prefix check.
+pub(crate) fn inside(workspace: &Path, raw: &str) -> bool {
+    let ws = workspace
+        .canonicalize()
+        .unwrap_or_else(|_| workspace.to_path_buf());
+    absolute(&ws, raw).starts_with(&ws)
+}
+
+fn absolute(ws: &Path, raw: &str) -> PathBuf {
     let joined = if Path::new(raw).is_absolute() {
         PathBuf::from(raw)
     } else {
@@ -173,12 +197,7 @@ pub(crate) fn resolve(workspace: &Path, raw: &str) -> Result<PathBuf, String> {
             other => out.push(other.as_os_str()),
         }
     }
-    if !out.starts_with(&ws) {
-        return Err(format!(
-            "refused: '{raw}' resolves outside the workspace. Ask the user to open the right folder first."
-        ));
-    }
-    Ok(out)
+    out
 }
 
 fn need_str(args: &Value, key: &str) -> Result<String, String> {
@@ -188,11 +207,16 @@ fn need_str(args: &Value, key: &str) -> Result<String, String> {
         .ok_or_else(|| format!("missing required argument '{key}'"))
 }
 
-pub async fn execute_native(name: &str, args: &Value, workspace: &Path) -> Result<String, String> {
+pub async fn execute_native(
+    name: &str,
+    args: &Value,
+    workspace: &Path,
+    allow_outside: bool,
+) -> Result<String, String> {
     match name {
         "read_file" => {
             let path = need_str(args, "path")?;
-            let p = resolve(workspace, &path)?;
+            let p = resolve(workspace, &path, allow_outside)?;
             let content = std::fs::read_to_string(&p)
                 .map_err(|e| format!("cannot read {}: {e}", p.display()))?;
             let lines: Vec<&str> = content.lines().collect();
@@ -226,7 +250,7 @@ pub async fn execute_native(name: &str, args: &Value, workspace: &Path) -> Resul
         "write_file" => {
             let path = need_str(args, "path")?;
             let content = need_str(args, "content")?;
-            let p = resolve(workspace, &path)?;
+            let p = resolve(workspace, &path, allow_outside)?;
             if let Some(dir) = p.parent() {
                 std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
             }
@@ -250,7 +274,7 @@ pub async fn execute_native(name: &str, args: &Value, workspace: &Path) -> Resul
                 .get("replace_all")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
-            let p = resolve(workspace, &path)?;
+            let p = resolve(workspace, &path, allow_outside)?;
             let content = std::fs::read_to_string(&p)
                 .map_err(|e| format!("cannot read {}: {e}", p.display()))?;
             let count = content.matches(&old).count();
@@ -292,7 +316,7 @@ pub async fn execute_native(name: &str, args: &Value, workspace: &Path) -> Resul
                     .canonicalize()
                     .unwrap_or_else(|_| workspace.to_path_buf())
             } else {
-                resolve(workspace, &rel)?
+                resolve(workspace, &rel, allow_outside)?
             };
             let mut out = String::new();
             let mut count = 0usize;
@@ -395,7 +419,7 @@ pub async fn execute_native(name: &str, args: &Value, workspace: &Path) -> Resul
                 .unwrap_or(120)
                 .min(900);
             let cwd = match args.get("cwd").and_then(|v| v.as_str()) {
-                Some(c) if !c.is_empty() => resolve(workspace, c)?,
+                Some(c) if !c.is_empty() => resolve(workspace, c, allow_outside)?,
                 _ => workspace.to_path_buf(),
             };
             run_shell(&command, &cwd, timeout_secs).await

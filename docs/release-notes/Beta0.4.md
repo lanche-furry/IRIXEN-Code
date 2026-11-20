@@ -1,8 +1,8 @@
 # IRIXEN Code Beta 0.4
 
-这一版只做一件事：让代理在改代码之前，先能查出代码里已经存在的危险。为此给它加了一个确定性的扫描器、一份把扫描结果变成攻击路径的审计技能，以及审查面板上的一个按钮。
+这一版做两件事：让代理在改代码之前能先查出已经存在的危险，以及让它知道哪些动作该先问你。顺带把 Windows 安装器从 NSIS 换成了 MSI。
 
-This release does one thing: let the agent find the dangers already in the code before it changes any. That means a deterministic scanner, an audit skill that turns its output into attack paths, and a button in the review panel.
+This release does two things: it gives the agent a way to find the dangers already in the code before it changes any, and it teaches it which actions should ask first. The Windows installer also moved from NSIS to MSI.
 
 ## 新功能 / New features
 
@@ -20,6 +20,26 @@ The review panel header now has a shield button. It does not send a diff — it 
 - 行内豁免：`// irixen-audit: ignore` 放行整行，`ignore=jwt` 只放行一条规则。扫描器的测试夹具靠这个活着，否则它第一天就报自己 / Inline suppression: `// irixen-audit: ignore` silences a line, `ignore=jwt` silences one rule. The scanner's own fixtures live on this, or it would report itself on day one
 - 审计技能先扫后读：逐条回读命中处的上下文，只报能把入口、输入和效果说成一条攻击路径的问题，分「可利用、有条件、不是缺陷」三档，结尾必须交代没查什么 / The audit skill reads after it scans, re-reading the code around every hit and reporting only findings it can state as an attack path with entry point, input and effect. Verdicts are exploitable, conditional or not-a-bug, and the report ends by naming what was not checked
 
+### 三档访问模式 / Three access modes
+
+输入框上方多了一个选择器，就在思考强度旁边：这个回合到底给多少权限，是先决定再打字，不是事后后悔。
+
+There is a new picker above the composer, next to the effort knob. How much rope this turn gets is decided before you type, not regretted afterwards.
+
+- **受限访问**：每次写文件、每条命令都先弹一张卡片等你点「允许」，工作区以外的路径直接拒绝，连试都不试 / **Restricted**: every write and every command waits for you to press Allow on a card, and paths outside the workspace are refused outright instead of being attempted
+- **自动审批**（默认）：工作区内的写入、命令、Git 操作直接执行；一旦要越出工作区，才停下来问你 / **Auto-approve** (the default): writes, commands and git operations inside the workspace just run; the moment a call leaves it, the agent stops and asks
+- **完全访问**：什么都不问，工作区以外的路径也能读写。切换时会明确警告一次，因为这是唯一一档能把文件写到项目外面的模式 / **Full access**: nothing asks, and paths outside the workspace become readable and writable. Switching to it warns once, because it is the only mode where a file can land outside the project
+- 审批卡片写明工具、动作、路径或命令原文和影响范围（多少字节、替换前后各一行），不做美化：路径就是路径 / The approval card names the tool, the action, the raw path or command, and the size of the change (bytes, one line of before and after). Nothing is prettified — a path is shown as the path
+- 代理真的会停住，不是演一下：工具调用挂在 Rust 侧等回执，你在卡片上选了才继续；点「停止」会连带撤销正在等待的那次确认，15 分钟没人回答按拒绝处理 / The agent really stops, it does not perform a pause: the tool call parks in Rust until you answer the card. Stop cancels any pending approval too, and fifteen minutes of silence counts as a refusal
+- 当前模式会写进系统提示，模型知道自己什么时候会被拦，不会为一个它早就知道会被拒的调用浪费回合 / The active mode is written into the system prompt, so the model knows when a call will be intercepted and does not burn a turn on something it already knows will be refused
+
+## Windows 安装器换成 MSI / The Windows installer is now MSI
+
+- 安装包从 NSIS 换成 **MSI**（WiX），每个版本出 `en-US` 与 `zh-CN` 两个语言版本，装的东西一样，只有向导语言不同 / The Windows package moved from NSIS to **MSI** (WiX), published per release in `en-US` and `zh-CN`. Same payload, different wizard language
+- 换的原因不是口味：旧 NSIS 钩子在 `%APPDATA%` 里复制、删除本应用的配置文件，而"安装包动 AppData"正是杀软启发式的靶心——带签名的 Beta 0.2 被 Avira 报成 `TR/Hijacker.Gen`。MSI 的安装器没有可以写这种逻辑的地方 / The reason is not taste: the old NSIS hooks copied and deleted this app's config under `%APPDATA%`, and "an installer touching AppData" is exactly what heuristics look for — the signed Beta 0.2 package was flagged `TR/Hijacker.Gen` by Avira. An MSI has nowhere to put that kind of logic
+- 代价说清楚：安装和卸载都不再碰 `%APPDATA%`，第一次安装也不会自动清空旧配置。要干净重来请手动删掉 `%APPDATA%\IRIXEN Code`，或用设置里的「恢复默认配置」 / The cost, stated plainly: neither install nor uninstall touches `%APPDATA%` any more, so a first install no longer clears a stale profile. For a clean start, delete `%APPDATA%\IRIXEN Code` by hand or use "reset to defaults" in Settings
+- 应用内更新改成先校验再把 `msiexec /i <msi> /passive /norestart` 拉起来，然后自己退出。MSI 是 per-machine，会弹一次 UAC / In-app updates now verify the file, hand it to `msiexec /i <msi> /passive /norestart`, and quit. An MSI is per-machine, so Windows shows one UAC prompt
+
 ## 可靠性与流程 / Reliability and process
 
 - 夜间构建从 UTC 12:00 挪到 12:07：整点是 GitHub 定时任务排队的最高峰，12:00 的任务经常晚十几分钟，偶尔直接被丢掉 / The nightly build moved from 12:00 to 12:07 UTC — the top of the hour is GitHub's busiest queue, where a 12:00 schedule shows up ten-plus minutes late or not at all
@@ -32,13 +52,14 @@ The review panel header now has a shield button. It does not send a diff — it 
 
 ## 安装 / Install
 
-- **Windows x64**：`IRIXEN.Code_0.4.0-beta.1_x64-setup.exe`，双击安装，会创建开始菜单与桌面快捷方式并自动补齐 WebView2 Runtime / `IRIXEN.Code_0.4.0-beta.1_x64-setup.exe` — run it; it creates Start Menu and desktop shortcuts and bootstraps the WebView2 Runtime
+- **Windows x64**：`IRIXEN.Code_0.4.0-beta.1_x64_zh-CN.msi`（或 `_en-US.msi`），双击安装；会弹一次 UAC，装进 `Program Files`，创建开始菜单与桌面快捷方式并自动补齐 WebView2 Runtime / `IRIXEN.Code_0.4.0-beta.1_x64_zh-CN.msi` (or `_en-US.msi`) — run it. One UAC prompt, installs under `Program Files`, creates Start Menu and desktop shortcuts and bootstraps the WebView2 Runtime
 - **Linux x64（通用）**：`IRIXEN_Code_0.4.0-beta.1_amd64.AppImage`，`chmod +x` 后直接运行 / `IRIXEN_Code_0.4.0-beta.1_amd64.AppImage` — `chmod +x` it, then run it
 - **Linux x64（Debian/Ubuntu）**：`sudo apt install ./IRIXEN_Code_0.4.0-beta.1_amd64.deb`，依赖会自动拉取 / `sudo apt install ./IRIXEN_Code_0.4.0-beta.1_amd64.deb` — dependencies come with it
 
 ## 说明 / Notes
 
-- **可以直接在应用里升级**：一键更新从 Beta 0.3 起可用，0.3 的用户点「检查更新 → 下载并安装」就能装完这一版，不用再去发布页 / **You can upgrade from inside the app**: one-click updating has worked since Beta 0.3, so 0.3 users can hit check, download and install without visiting the release page
+- **从 Beta 0.3 或更早的 NSIS 版本升级，请先卸载**：NSIS 是 per-user、MSI 是 per-machine，直接覆盖会在机器上留下两份。/ **Coming from Beta 0.3 or an earlier NSIS build? Uninstall first**: NSIS installed per-user and the MSI installs per-machine, so installing over the top leaves two copies
+- **本页附件已重建过一次**：还是 Beta 0.4，但把 NSIS 安装包换成了 MSI，SHA-256 与最早下载到的那批不同，请以 `checksums.txt` 为准 / **The assets on this page were rebuilt**: still Beta 0.4, but the Windows package is now an MSI, so its SHA-256 differs from the first batch — trust `checksums.txt`
 - **扫描干净不等于安全**：规则表只管模式级问题，依赖漏洞、基础设施配置、运行时状态都不在范围内，报告结尾会明说，别把它当成一次完整渗透测试 / **A clean scan is not safety**: the rule table only covers pattern-level issues. Dependency CVEs, infrastructure configuration and runtime state are out of scope, the report says so, and none of this substitutes for a penetration test
 - Windows 安装包带**自签名证书**（签名者 `CN=IRIXEN`），SmartScreen 仍可能提示「未知发布者」，首次运行点「更多信息 → 仍要运行」；彻底消掉需要 OV/EV 证书 / The installer is **self-signed** (`CN=IRIXEN`), so SmartScreen may still warn about an unknown publisher — click "More info → Run anyway" on first launch. Removing that for good needs an OV/EV certificate
 - Linux 版仍未经真机冒烟测试，CI 只做静态校验；遇到启动即退出请附上终端输出 / The Linux build is still not smoke-tested on real hardware — CI only checks the packages statically. If it exits on startup, please attach the terminal output
