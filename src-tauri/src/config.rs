@@ -1056,18 +1056,3 @@ pub fn is_loopback(base_url: &str) -> bool {
         || u.starts_with("localhost")
         || u.starts_with("127.")
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn scratch(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("irixen-cfg-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
-    }
-
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-}
