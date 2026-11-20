@@ -252,7 +252,7 @@ export const zhTW = {
   'review.title': '審查',
   'review.askAgent': '讓 Agent 審查',
   'review.audit': '安全審查',
-  'review.auditPrompt': '請對這個工作區做一次安全審查：先呼叫 security_scan（有未提交變更就 scope=changed，否則 scope=workspace），再逐條讀程式碼確認是否真的可利用，依嚴重度排序輸出，並說明你沒有檢查的部分。',
+  'review.auditPrompt': '請對這個工作區做一次安全審計：先呼叫 security_scan（有未提交變更就 scope=changed，否則 scope=workspace），再逐條讀程式碼確認是否真的可利用，依嚴重度排序輸出，並說明你沒有檢查的部分。',
   'review.pickFile': '選一個檔案查看變更',
   'review.noChanges': '工作區沒有未提交的變更',
   'review.notRepo': '目前資料夾不是 Git 儲存庫',

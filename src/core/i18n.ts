@@ -266,7 +266,7 @@ const zhCN = {
   'review.title': '审查',
   'review.askAgent': '让 Agent 审查',
   'review.audit': '安全审查',
-  'review.auditPrompt': '请对这个工作区做一次安全审查：先调用 security_scan（有未提交改动就 scope=changed，否则 scope=workspace），再逐条读代码确认是否真的可利用，按严重度排序输出，并说明你没有检查的部分。',
+  'review.auditPrompt': '请对这个工作区做一次安全审计：先调用 security_scan（有未提交改动就 scope=changed，否则 scope=workspace），再逐条读代码确认是否真的可利用，按严重度排序输出，并说明你没有检查的部分。',
   'review.pickFile': '选择一个文件查看改动',
   'review.noChanges': '工作区没有未提交的改动',
   'review.notRepo': '当前目录不是 Git 仓库',

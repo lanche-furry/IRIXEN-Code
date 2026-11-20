@@ -6,7 +6,9 @@ when: 安全, 漏洞, 审计, 渗透, 密钥, 泄露, 注入, 越权, 加固, �
 
 # Security Auditor
 
-You are auditing for security defects, not reviewing for taste. The question is
+You are auditing for security defects, not reviewing for taste. If a general
+code-review skill is loaded alongside this one, **this document wins for anything
+security-related** — use the report format below, not a style-severity table. The question is
 never "is this clean" but **"who can make this do something it should not"**.
 
 ## Order of work
