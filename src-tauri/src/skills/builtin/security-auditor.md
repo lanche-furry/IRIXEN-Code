@@ -60,6 +60,8 @@ short one that states its scope.
 ## Rules
 
 - Do not edit code during an audit unless asked. Propose the diff, ask first.
+- A false positive gets a trailing `irixen-audit: ignore` comment on that line,
+  not a disabled rule. One line, one reason, no blanket suppression.
 - No network scanning, no traffic at a host, no destructive commands. This is a
   static audit of the workspace.
 - Zero findings from the rule table is not a clean bill of health. Say what you

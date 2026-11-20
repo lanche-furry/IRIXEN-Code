@@ -627,6 +627,35 @@ fn should_skip(workspace: &Path, path: &Path) -> bool {
     }
 }
 
+/// Inline allowlist, the one thing every scanner needs and nobody adds first.
+///
+/// ```text
+/// let key = "AKIA...";   // irixen-audit: ignore
+/// dbg!("...");           // irixen-audit: ignore=cloud-credential,jwt
+/// ```
+///
+/// Returns `Some(vec![])` for "suppress everything on this line", or the list
+/// of rule ids to suppress.
+fn suppression(lower: &str) -> Option<Vec<String>> {
+    const MARK: &str = "irixen-audit: ignore";
+    let at = lower.find(MARK)?;
+    let rest = lower[at + MARK.len()..].trim_start();
+    let Some(list) = rest.strip_prefix('=') else {
+        return Some(Vec::new());
+    };
+    let taken: String = list
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | ',' | ' '))
+        .collect();
+    Some(
+        taken
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect(),
+    )
+}
+
 fn examine(file: &Path, workspace: &Path, report: &mut Report, max: usize) {
     let rel = rel_path(workspace, file);
     let name = file
@@ -677,9 +706,17 @@ fn examine(file: &Path, workspace: &Path, report: &mut Report, max: usize) {
             continue;
         }
         let lower = line.to_ascii_lowercase();
+        let suppressed = suppression(&lower);
+        let is_suppressed = |id: &str| match &suppressed {
+            None => false,
+            Some(ids) => ids.is_empty() || ids.iter().any(|i| i == id),
+        };
 
         for rule in RULES {
             if !rule.gates.iter().any(|g| lower.contains(g)) {
+                continue;
+            }
+            if is_suppressed(rule.id) {
                 continue;
             }
             let hit = match (rule.scan)(line) {
@@ -719,7 +756,7 @@ fn examine(file: &Path, workspace: &Path, report: &mut Report, max: usize) {
             }
         }
 
-        if in_workflows {
+        if in_workflows && !is_suppressed("unpinned-action") {
             if let Some(what) = scan_unpinned_action(line) {
                 report.findings.push(Finding {
                     rule: "unpinned-action",
@@ -914,7 +951,7 @@ mod tests {
     #[test]
     fn a_cloud_key_is_found_and_masked() {
         let dir = workspace("cloud");
-        write(&dir, "src/net.rs", "let key = \"AKIAIOSFODNN7EXAMPLE\";\n");
+        write(&dir, "src/net.rs", "let key = \"AKIAIOSFODNN7EXAMPLE\";\n"); // irixen-audit: ignore
         let report = run(&dir);
         assert_eq!(report.findings.len(), 1, "{:?}", report.findings);
         let f = &report.findings[0];
@@ -947,7 +984,7 @@ mod tests {
     #[test]
     fn env_assignment_without_quotes_is_caught() {
         let dir = workspace("env");
-        write(&dir, "deploy.sh", "export GITHUB_TOKEN=ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n");
+        write(&dir, "deploy.sh", "export GITHUB_TOKEN=ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"); // irixen-audit: ignore
         let report = run(&dir);
         assert!(report.findings.iter().any(|f| f.rule == "cloud-credential"));
         std::fs::remove_dir_all(&dir).ok();
@@ -968,7 +1005,7 @@ mod tests {
     #[test]
     fn ignored_and_dependency_directories_are_skipped() {
         let dir = workspace("skip");
-        write(&dir, "node_modules/pkg/index.js", "const t = \"AKIAIOSFODNN7EXAMPLE\";\n");
+        write(&dir, "node_modules/pkg/index.js", "const t = \"AKIAIOSFODNN7EXAMPLE\";\n"); // irixen-audit: ignore
         write(&dir, "src/ok.js", "const t = 1;\n");
         let report = run(&dir);
         assert!(report.findings.is_empty(), "{:?}", report.findings);
@@ -991,6 +1028,23 @@ mod tests {
         write(&dir, ".github/workflows/ci.yml", "jobs:\n  build:\n    steps:\n      - uses: actions/checkout@v4\n");
         let after = run(&dir);
         assert!(!after.findings.iter().any(|f| f.rule == "unpinned-action"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_trailing_marker_suppresses_exactly_one_line() {
+        let dir = workspace("suppress");
+        // Each fixture line lives on its own source line so the marker can be
+        // attached to it — this file is audited by its own rules too.
+        let a = "let a = \"AKIAIOSFODNN7EXAMPLE\"; // irixen-audit: ignore\n"; // irixen-audit: ignore
+        let b = "let b = \"AKIAIOSFODNN7EXAMPLE\";\n"; // irixen-audit: ignore
+        let c = "let c = \"AKIAIOSFODNN7EXAMPLE\"; // irixen-audit: ignore=jwt\n"; // irixen-audit: ignore
+        write(&dir, "src/a.rs", &format!("{a}{b}{c}"));
+        let report = run(&dir);
+        let lines: Vec<usize> = report.findings.iter().map(|f| f.line).collect();
+        // Line 1 is silenced, line 2 is not, and naming another rule on line 3
+        // must not silence this one.
+        assert_eq!(lines, vec![3], "{:?}", report.findings);
         std::fs::remove_dir_all(&dir).ok();
     }
 

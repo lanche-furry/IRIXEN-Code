@@ -135,7 +135,8 @@ pub fn native_tool_specs() -> Vec<ToolSpec> {
              shell/code injection, SQL built by interpolation, world-writable files, secret \
              files and unpinned CI actions. Secrets are masked in the output — never ask for or \
              print the raw value. Rules are pattern-level: read the code around every hit before \
-             reporting it, and treat a clean scan as 'no rule matched', not as 'safe'.",
+             reporting it, and treat a clean scan as 'no rule matched', not as 'safe'. A trailing \
+             `irixen-audit: ignore` comment silences a line, `ignore=rule-id` silences one rule.",
             json!({
                 "type": "object",
                 "properties": {
