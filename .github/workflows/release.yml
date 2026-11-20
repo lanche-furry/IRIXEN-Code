@@ -164,8 +164,8 @@ jobs:
       - name: Run unit tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --lib
 
-      # tauri.conf.json pins `bundle.targets` to nsis, so ask for the Linux
-      # formats explicitly.
+      # tauri.conf.json pins `bundle.targets` to msi (a Windows-only bundler),
+      # so ask for the Linux formats explicitly.
       - name: Build deb and AppImage
         run: npx tauri build --bundles deb,appimage
 
@@ -271,6 +271,18 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "release $TAG exists — replacing assets"
             gh release upload "$TAG" dist/* --clobber
+            # `--clobber` replaces same-named assets but leaves the ones this
+            # build no longer produces (Beta 0.4 shipped an NSIS `.exe` until
+            # 0.4.0-beta.1 moved to MSI). A stale installer left on the page is
+            # worse than a missing one: it is still offered for download.
+            gh release view "$TAG" --json assets --jq '.assets[].name' |
+              while read -r name; do
+                [ -n "$name" ] || continue
+                if [ ! -e "dist/$name" ]; then
+                  echo "removing stale asset $name"
+                  gh release delete-asset "$TAG" "$name" --yes
+                fi
+              done
             gh release edit "$TAG" --title "$title" --latest "${notes[@]}"
           else
             gh release create "$TAG" dist/* \
