@@ -1043,8 +1043,8 @@ mod tests {
         let report = run(&dir);
         let lines: Vec<usize> = report.findings.iter().map(|f| f.line).collect();
         // Line 1 is silenced, line 2 is not, and naming another rule on line 3
-        // must not silence this one.
-        assert_eq!(lines, vec![3], "{:?}", report.findings);
+        // must not silence this one — so 2 and 3 both fire.
+        assert_eq!(lines, vec![2, 3], "{:?}", report.findings);
         std::fs::remove_dir_all(&dir).ok();
     }
 
