@@ -43,7 +43,7 @@ Keyword matching is a case-insensitive substring match. Chinese has no word segm
 
 ## Built-in skills
 
-Five of them, with sources in `src-tauri/src/skills/builtin/`, compiled into the binary via `include_str!`, so they are always available and cannot be deleted (they can be disabled).
+Six of them, with sources in `src-tauri/src/skills/builtin/`, compiled into the binary via `include_str!`, so they are always available and cannot be deleted (they can be disabled).
 
 | Skill | Trigger | Effect |
 | --- | --- | --- |
@@ -52,6 +52,7 @@ Five of them, with sources in `src-tauri/src/skills/builtin/`, compiled into the
 | `repo-scout` | "this project", "structure", "entry point" | Map the directories and entry points before acting instead of guessing paths |
 | `commit-craft` | "commit", "write a message" | Commit-message convention: one-line subject plus a bullet list |
 | `code-reviewer` | "review", "check", "anything wrong" | Reports in the order correctness → edge cases → performance → style |
+| `security-auditor` | "security review", "vulnerability", "audit", "secret" | Runs `security_scan` first, then verifies every hit; secrets stay masked, only findings with an attack path get reported |
 
 ## Installation
 

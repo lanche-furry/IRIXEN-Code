@@ -37,6 +37,8 @@ const P = {
   layout: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M3 10h18"/>',
   // review: a diff under a magnifier — "审当前改动"
   review: '<path d="M4 5h9M4 9h6M4 13h9M4 17h5"/><circle cx="16.5" cy="14.5" r="3.8"/><path d="M19.3 17.3L22 20"/>',
+  // shield with a check — the security audit entry point
+  shield: '<path d="M12 3l7 3v5.5c0 4.4-2.9 7.4-7 9-4.1-1.6-7-4.6-7-9V6z"/><path d="M9 11.8l2.2 2.2L15.5 9.6"/>',
   // plug: the bridge endpoint
   plug: '<path d="M9 3v5M15 3v5"/><path d="M7 8h10v3a5 5 0 0 1-10 0z"/><path d="M12 16v5"/>',
   // puzzle: third-party extensions

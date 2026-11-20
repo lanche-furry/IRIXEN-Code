@@ -252,6 +252,8 @@ export const frFR = {
   'editor.backToDock': 'Retour au chat',
   'review.title': 'Revue',
   'review.askAgent': "Demander une revue à l'agent",
+  'review.audit': 'Revue de sécurité',
+  'review.auditPrompt': "Lance un audit de sécurité de cet espace de travail : appelle d'abord security_scan (scope=changed s'il y a des modifications non validées, sinon scope=workspace), lis le code autour de chaque résultat pour décider s'il est réellement exploitable, classe par gravité et indique ce que tu n'as pas vérifié.",
   'review.pickFile': 'Choisissez un fichier pour voir ses modifications',
   'review.noChanges': 'Aucune modification non validée',
   'review.notRepo': "Ce dossier n'est pas un dépôt Git",

@@ -25,7 +25,7 @@ IRIXEN Code 只有两层：**Rust 进程**（IRIXEN Agent + 系统能力）和 *
 │    provider.rs  LlmProvider trait + OpenAi/Anthropic/Gemini 三个实现       │
 │    models.rs    模型目录 + 思考能力推断 + 10 分钟磁盘缓存                   │
 │    context.rs   Compressor：折叠 / 窗口 / 摘要                             │
-│    tools.rs     7 个原生工具（工作区内路径沙箱）                            │
+│    tools.rs     8 个原生工具（工作区内路径沙箱）                            │
 │    meter.rs     UsageMeter：按模型 / 按会话计量                             │
 │    mod.rs       AgentEngine：会话、回合循环、事件发射                       │
 │  mcp.rs         McpHost / McpConn：JSON-RPC over stdio                     │

@@ -3,6 +3,7 @@
 //! Owns sessions, drives the tool loop, streams normalized events to the
 //! webview, meters usage and schedules context compression.
 
+pub mod audit;
 pub mod context;
 pub mod meter;
 pub mod models;

@@ -43,7 +43,7 @@ when: 省token, token, 精简, 太长, 冗长, 简短
 
 ## 内置技能
 
-5 个，源码在 `src-tauri/src/skills/builtin/`，通过 `include_str!` 编进二进制，因此永远可用、不可删除（可以停用）。
+6 个，源码在 `src-tauri/src/skills/builtin/`，通过 `include_str!` 编进二进制，因此永远可用、不可删除（可以停用）。
 
 | 技能 | 触发场景 | 作用 |
 | --- | --- | --- |
@@ -52,6 +52,7 @@ when: 省token, token, 精简, 太长, 冗长, 简短
 | `repo-scout` | "这个项目"、"结构"、"入口" | 先摸清目录与入口再动手，避免瞎猜路径 |
 | `commit-craft` | "提交"、"commit"、"写信息" | 提交信息规范：一句话主旨 + 要点列表 |
 | `code-reviewer` | "review"、"检查"、"有没有问题" | 按 正确性 → 边界 → 性能 → 风格 顺序给结论 |
+| `security-auditor` | "安全审查"、"漏洞"、"审计"、"密钥" | 先跑 `security_scan` 再逐条验证；密钥脱敏，只报能说清攻击路径的问题 |
 
 ## 安装
 

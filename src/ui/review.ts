@@ -38,6 +38,14 @@ export function mountReview(dock: HTMLElement) {
       class: 'picker',
       onClick: () => void askAgent(),
     }, icon('spark', 12), h('span', { class: 'val' }, t('review.askAgent'))),
+    // Security is a different question from "is this change correct", and it
+    // does not need a dirty worktree — the prompt can ask for a whole-tree
+    // sweep, so it is not gated on `files`.
+    h('button', {
+      class: 'picker',
+      title: t('review.auditPrompt'),
+      onClick: () => void askSecurity(),
+    }, icon('shield', 12), h('span', { class: 'val' }, t('review.audit'))),
     h('button', {
       class: 'icon-btn',
       title: t('common.refresh'),
@@ -162,4 +170,11 @@ async function askAgent() {
     t('review.promptRules'),
   ].join('\n');
   await sendPrompt(prompt);
+}
+
+/** Hand the security prompt to the agent. The procedure lives in the
+ *  `security-auditor` skill (auto-activated by the wording), the evidence comes
+ *  from `security_scan`; this button only states the intent. */
+async function askSecurity() {
+  await sendPrompt(t('review.auditPrompt'));
 }

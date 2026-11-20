@@ -35,6 +35,7 @@ const BUILTINS: &[(&str, &str)] = &[
     ("repo-scout", include_str!("skills/builtin/repo-scout.md")),
     ("diff-surgeon", include_str!("skills/builtin/diff-surgeon.md")),
     ("code-reviewer", include_str!("skills/builtin/code-reviewer.md")),
+    ("security-auditor", include_str!("skills/builtin/security-auditor.md")),
 ];
 
 fn parse_frontmatter(text: &str) -> (Frontmatter, String) {

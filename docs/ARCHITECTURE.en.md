@@ -24,7 +24,7 @@ IRIXEN Code has exactly two layers: a **Rust process** (the IRIXEN Agent plus sy
 │    provider.rs  LlmProvider trait + OpenAi/Anthropic/Gemini implementations         │
 │    models.rs    model catalog + thinking inference + 10-minute disk cache           │
 │    context.rs   Compressor: elision / window / digest                               │
-│    tools.rs     7 native tools (path sandbox inside the workspace)                  │
+│    tools.rs     8 native tools (path sandbox inside the workspace)                  │
 │    meter.rs     UsageMeter: per model / per session                                 │
 │    mod.rs       AgentEngine: sessions, turn loop, event emission                    │
 │  mcp.rs         McpHost / McpConn: JSON-RPC over stdio                              │

@@ -252,6 +252,8 @@ export const esES = {
   'editor.backToDock': 'Volver al chat',
   'review.title': 'Revisión',
   'review.askAgent': 'Pedir revisión al agente',
+  'review.audit': 'Revisión de seguridad',
+  'review.auditPrompt': 'Haz una auditoría de seguridad de este espacio de trabajo: llama primero a security_scan (scope=changed si hay cambios sin confirmar, si no scope=workspace), lee el código alrededor de cada hallazgo para decidir si es explotable y ordénalos por gravedad, indicando lo que no revisaste.',
   'review.pickFile': 'Elige un archivo para ver sus cambios',
   'review.noChanges': 'No hay cambios sin confirmar',
   'review.notRepo': 'Esta carpeta no es un repositorio Git',

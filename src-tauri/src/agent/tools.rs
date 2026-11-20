@@ -1,6 +1,7 @@
 //! The agent's built-in ("native") tool set.
 //!
-//! Deliberately small and sharp: seven tools that cover read → edit → verify.
+//! Deliberately small and sharp: eight tools that cover read → edit → verify,
+//! plus one that enumerates a security posture so the model does not have to.
 //! Every tool confines writes to the workspace root and caps its own output so
 //! a single call can never blow up the context window.
 
@@ -124,6 +125,28 @@ pub fn native_tool_specs() -> Vec<ToolSpec> {
                     "limit": { "type": "integer", "description": "Log entries, default 10" }
                 },
                 "required": ["action"]
+            }),
+        ),
+        spec(
+            "security_scan",
+            "Deterministic security triage: sweeps the workspace (or just the uncommitted \
+             changes) with a fixed rule table and returns findings as path:line with severity \
+             and a fix hint. Covers credentials, private keys, TLS verification turned off, \
+             shell/code injection, SQL built by interpolation, world-writable files, secret \
+             files and unpinned CI actions. Secrets are masked in the output — never ask for or \
+             print the raw value. Rules are pattern-level: read the code around every hit before \
+             reporting it, and treat a clean scan as 'no rule matched', not as 'safe'.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "scope": {
+                        "type": "string",
+                        "enum": ["workspace", "changed", "path"],
+                        "description": "workspace = whole tree (default), changed = git status, path = one file/dir"
+                    },
+                    "path": { "type": "string", "description": "Relative path when scope=path" },
+                    "max_findings": { "type": "integer", "description": "Default 80, cap 300" }
+                }
             }),
         ),
     ]
@@ -437,6 +460,30 @@ pub async fn execute_native(name: &str, args: &Value, workspace: &Path) -> Resul
                 "init" => crate::git::init(&ws),
                 other => Err(format!("unknown git action '{other}'")),
             }
+        }
+        // The only tool that walks the whole tree, so it runs on the blocking
+        // pool: a 6k-file sweep must not stall the async runtime every other
+        // event is queued on.
+        "security_scan" => {
+            let opts = super::audit::ScanOptions {
+                scope: super::audit::Scope::parse(
+                    args.get("scope").and_then(|v| v.as_str()).unwrap_or("workspace"),
+                ),
+                path: args
+                    .get("path")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
+                max_findings: args
+                    .get("max_findings")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(80) as usize,
+            };
+            let ws = workspace.to_path_buf();
+            tokio::task::spawn_blocking(move || {
+                super::audit::scan(&ws, &opts).map(|r| r.render())
+            })
+            .await
+            .map_err(|e| format!("scan task failed: {e}"))?
         }
         other => Err(format!("unknown tool '{other}'")),
     }

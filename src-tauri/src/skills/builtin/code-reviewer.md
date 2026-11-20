@@ -1,7 +1,7 @@
 ---
 name: Code Reviewer
 description: 高信号代码审查：只报会出事的问题，按严重度排序，附最小修复
-when: 审查, 评审, review, 检查代码, 安全, 性能, bug, 质量
+when: 审查, 评审, review, 检查代码, 性能, bug, 质量
 ---
 
 # Code Reviewer
