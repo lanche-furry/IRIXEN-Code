@@ -98,9 +98,11 @@ Nightlies are described in `.github/workflows/nightly.yml`: Windows and Linux ea
 
 **GitHub's `schedule` is not a timer.** The docs say plainly that the top of the hour is the busiest slot for scheduling: `schedule` events routinely arrive minutes late, occasionally more than an hour late, and sometimes not at all that day. Only the copy of the workflow file on the **default branch** counts, cron included — a schedule edited on another branch does nothing. Manual `workflow_dispatch` and the schedule are independent triggers: a manual run neither cancels that day's scheduled run nor takes its slot (the shared `concurrency` group at most makes them queue).
 
-That is why the cron reads **`7 12 * * *`** — 12:07 UTC, 20:07 Beijing, **deliberately off the hour**. The top of the hour is the most congested moment in the scheduler queue every repository shares; a `0 12` cron arrives late often and gets dropped outright on a busy day. Nothing downstream cares whether it is exactly 12:00, so seven minutes cost nothing.
+That is why there are now **six crons** (00:07, 04:07, 08:07, 12:07, 16:07 and 20:07 UTC), all deliberately off the hour. This is not belt-and-braces; it is what the repository measured. The single `7 12 * * *` cron landed at 20:24Z, 20:27Z, 20:47Z and 21:55Z — **two to eight hours late** — and on 2026-11-20 it never arrived at all. One dispatch a day means betting whether there is a build on that queue, and that bet loses.
 
-So when "no build today" comes up, filter the run list by `event=schedule` first: a record that failed is a build problem — read the log; no record at all means the scheduler never fired, so trigger it by hand.
+The six crons are collapsed by a `guard` job, which is what keeps them nearly free: it reads the rolling `nightly` release's title and, if it is already `Nightly <today's UTC date>`, sets `build=false` and stops in ten seconds; otherwise the windows and linux jobs build for real. So however many dispatches arrive in a day, at most one build comes out of it — and because a failed build never creates the release, the next cron retries instead of a guard believing the day is done. A manual `workflow_dispatch` bypasses the check: asking for a run means you want to watch it run.
+
+So when "no build today" comes up, filter the run list by `event=schedule` first: a run where `guard` skipped means the day's build already exists — check the `nightly` release title; a run that failed is a build problem — read the log; no run at all means the scheduler never fired, so trigger it by hand.
 
 ## Icons
 

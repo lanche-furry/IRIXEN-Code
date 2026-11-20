@@ -12,17 +12,24 @@ name: Nightly build
 
 on:
   schedule:
-    # 12:07 UTC = 20:07 Asia/Shanghai, every day. Seven minutes past the hour on
-    # purpose: GitHub dispatches `schedule` events from one queue shared by every
-    # repository, and the top of the hour is its busiest minute — a `0 12` cron
-    # regularly shows up late and occasionally not at all on a busy day. Nothing
-    # downstream cares about the exact minute.
+    # Six crons a day, and `guard` below throws away all but the first one to
+    # actually reach a runner. That is not belt-and-braces for its own sake:
+    # GitHub's schedule queue is best-effort, and this repository's runs have
+    # been arriving **two to eight hours late** — the single `7 12 * * *` cron
+    # produced runs at 20:24Z, 20:27Z, 20:47Z and 21:55Z, and on 2026-11-20 the
+    # dispatch never showed up at all. One dispatch a day therefore means some
+    # days have no nightly. Six do not: whatever the queue does, one of them
+    # lands, and the guard keeps it to a single build per UTC day.
     #
-    # Still not a timer: runs can be delayed, only the copy of this file on the
-    # default branch is read for cron, and a manual dispatch is a separate
-    # trigger — it neither cancels that day's scheduled run nor takes its place
-    # (the `concurrency` group below at most makes the two queue up).
+    # Seven minutes past the hour on purpose: the top of the hour is the queue's
+    # busiest minute. Still not a timer — only the copy of this file on the
+    # default branch is read for cron.
+    - cron: "7 0 * * *"
+    - cron: "7 4 * * *"
+    - cron: "7 8 * * *"
     - cron: "7 12 * * *"
+    - cron: "7 16 * * *"
+    - cron: "7 20 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -33,10 +40,50 @@ permissions:
   contents: write
 
 jobs:
+  # Decides whether this dispatch is the one that builds today.
+  #
+  # The crons above are cheap only because this job is cheap: it reads the
+  # rolling release's title and exits in seconds. Scheduler delays mean several
+  # of them can land on the same UTC day, and a second build would just delete
+  # and recreate the release the first one published — ten minutes of Windows
+  # for nothing, plus a confusing "Nightly" page that churns.
+  #
+  # A failed build does not count as published, so the next dispatch retries it
+  # instead of the day silently having nothing. A manual dispatch always builds:
+  # asking for a run means you want to see it run.
+  guard:
+    if: github.repository == 'lanche-furry/IRIXEN-Code'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      build: ${{ steps.check.outputs.build }}
+    steps:
+      - name: Is today's nightly already published?
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+            echo "manual dispatch — building"
+            exit 0
+          fi
+          today="Nightly $(date -u +%Y%m%d)"
+          have=$(gh release view nightly --repo "$GITHUB_REPOSITORY" --json name -q .name 2>/dev/null || true)
+          if [ "$have" = "$today" ]; then
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            echo "$have is already out — this dispatch is redundant"
+          else
+            echo "build=true" >> "$GITHUB_OUTPUT"
+            echo "publishing $today (release currently: ${have:-none})"
+          fi
+
   windows:
+    needs: guard
     # Schedules fire on the default branch of the origin repo only; this also
     # keeps forks from publishing releases into their own repo by accident.
-    if: github.repository == 'lanche-furry/IRIXEN-Code'
+    if: github.repository == 'lanche-furry/IRIXEN-Code' && needs.guard.outputs.build == 'true'
     runs-on: windows-latest
     timeout-minutes: 60
 
@@ -93,7 +140,8 @@ jobs:
           retention-days: 14
 
   linux:
-    if: github.repository == 'lanche-furry/IRIXEN-Code'
+    needs: guard
+    if: github.repository == 'lanche-furry/IRIXEN-Code' && needs.guard.outputs.build == 'true'
     # 22.04 is the compromise: its glibc (2.35) still runs on most current
     # distributions, and it packages webkit2gtk-4.1 that Tauri v2 links against.
     runs-on: ubuntu-22.04
@@ -167,7 +215,8 @@ jobs:
           retention-days: 14
 
   publish:
-    needs: [windows, linux]
+    needs: [guard, windows, linux]
+    if: needs.windows.result == 'success' && needs.linux.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
