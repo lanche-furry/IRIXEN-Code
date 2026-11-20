@@ -287,9 +287,30 @@ jobs:
           set -euo pipefail
           # Recreate instead of patching: nightlies are disposable, and a fresh
           # release keeps exactly one asset per platform per day.
-          gh release delete nightly --yes --cleanup-tag || true
-          gh release create nightly dist/* \
-            --title "Nightly ${DATE}" \
-            --notes-file nightly-notes.md \
-            --prerelease \
-            --target "$GITHUB_SHA"
+          #
+          # Three attempts, because the first one here was answered with a bare
+          # `HTTP 403: Resource not accessible by integration` on the create call
+          # — with `contents: write` granted, the delete a line earlier having
+          # just succeeded, and the same commit publishing fine ten minutes later
+          # on a re-run. A transient 403 should cost twenty seconds, not a gap in
+          # the nightly channel until the next cron.
+          publish() {
+            gh release delete nightly --yes --cleanup-tag 2>/dev/null || true
+            gh release create nightly dist/* \
+              --title "Nightly ${DATE}" \
+              --notes-file nightly-notes.md \
+              --prerelease \
+              --target "$GITHUB_SHA"
+          }
+          for attempt in 1 2 3; do
+            if publish; then
+              echo "published on attempt ${attempt}"
+              break
+            fi
+            if [ "$attempt" = 3 ]; then
+              echo "::error::publishing failed on all three attempts"
+              exit 1
+            fi
+            echo "attempt ${attempt} failed — retrying in 20s" >&2
+            sleep 20
+          done
