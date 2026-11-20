@@ -169,6 +169,7 @@ Windows 安装包是 **MSI**（WiX），不再是 NSIS。`bundle.targets = ["msi
 - **升级是覆盖安装**：MSI 按 `UpgradeCode` 处理旧版本，不必先卸载。应用内「下载并安装」会校验 SHA-256 后执行 `msiexec /i <msi> /passive /norestart`，然后自己退出。
 - **需要管理员权限**：MSI 是 per-machine，装进 `Program Files`，安装时会弹 UAC。这一点和 NSIS 的 per-user 安装不同——Beta 0.3 及更早的 NSIS 版本请先卸载，再装 MSI，否则机器上会有两份。
 - **没有"卸载时删除应用数据"勾选框**：MSI 卸载只删自己装的文件，配置目录留着，需要时手动删。
+- **MSI 的版本号是四段纯数字**：WiX 的 `ProductVersion` 只接受 `major.minor.patch.build`，`0.4.0-beta.1` 会被 `tauri build` 直接拒掉（"optional pre-release identifier in app version must be numeric-only"）。所以 `bundle.windows.wix.version` 单独写一份，由 `npm run bump` 从 semver 推出来：`0.4.0-beta.1` → `0.4.0.1`，`0.5.0` → `0.5.0.0`。Windows 是按第四段排升级顺序的，漏改就等于发布一个"比已装的旧"的安装包，`release.yml` 里有一道检查专门盯这个。
 
 `nightly` 是预发布，且 tag 名不含数字，`is_version_tag` 会把它排除，所以每日构建永远不会弹窗提示普通用户升级。
 

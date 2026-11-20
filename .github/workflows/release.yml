@@ -229,6 +229,24 @@ jobs:
               esac;;
           esac
 
+      # WiX writes a four-field numeric ProductVersion and refuses the semver
+      # pre-release (`0.4.0-beta.1`), so tauri.conf.json carries a derived one
+      # (`0.4.0.1`). A bump that missed it would ship an installer claiming the
+      # previous release — Windows reads that as a downgrade and refuses.
+      - name: Verify the MSI version follows the package version
+        shell: bash
+        run: |
+          node -e '
+            const conf = require("./src-tauri/tauri.conf.json");
+            const msi = conf.bundle?.windows?.wix?.version ?? "";
+            const core = require("./package.json").version.split("-")[0];
+            if (!msi.startsWith(core + ".")) {
+              console.error(`::error::MSI ProductVersion ${msi || "(unset)"} does not follow package version ${core} — run npm run bump`);
+              process.exit(1);
+            }
+            console.log(`MSI ProductVersion ${msi} follows ${core}`);
+          '
+
       # Release notes are a deliverable, not an afterthought: the Beta 0.1
       # layout (`中文 / English` on every heading and bullet) or the release
       # fails here, before anything is uploaded. See docs/release-notes/Beta0.2.md.

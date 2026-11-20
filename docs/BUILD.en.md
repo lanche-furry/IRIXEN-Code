@@ -169,6 +169,7 @@ The switch is not a matter of taste. The old NSIS hooks copied and deleted this 
 - **Upgrades are over-the-top**: the MSI handles older versions through its `UpgradeCode`, so uninstalling first is not required. In-app "download and install" verifies the SHA-256, runs `msiexec /i <msi> /passive /norestart`, then quits.
 - **It needs administrator rights**: an MSI is per-machine and installs under `Program Files`, so Windows shows a UAC prompt. That differs from the old per-user NSIS build — uninstall Beta 0.3 or earlier first, or the machine ends up with two copies.
 - **No "delete app data" checkbox on uninstall**: the MSI removes only what it installed. The profile stays until you remove it.
+- **The MSI version is four numeric fields**: WiX's `ProductVersion` accepts only `major.minor.patch.build`, so `0.4.0-beta.1` is rejected outright by `tauri build` ("optional pre-release identifier in app version must be numeric-only"). `bundle.windows.wix.version` therefore carries its own copy, derived from the semver by `npm run bump`: `0.4.0-beta.1` becomes `0.4.0.1`, a plain `0.5.0` becomes `0.5.0.0`. Windows orders upgrades by that fourth field, so a bump that misses it publishes an installer older than what users already have — `release.yml` has a check for exactly that.
 
 `nightly` is a pre-release and its tag contains no digits, so `is_version_tag` excludes it — a nightly can never pop an upgrade prompt at regular users.
 

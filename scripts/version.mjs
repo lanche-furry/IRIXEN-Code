@@ -29,12 +29,30 @@ const files = {
 const read = (p) => readFileSync(p, 'utf8');
 const semverRe = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 
+// WiX wants a four-field numeric ProductVersion, so `0.4.0-beta.1` cannot be
+// written into the MSI as-is — `tauri build` stops with "optional pre-release
+// identifier in app version must be numeric-only". Map the semver onto
+// `<core>.<n>`, n being the last number in the pre-release (Beta 0.4's
+// `0.4.0-beta.1` becomes `0.4.0.1`; a plain `0.5.0` becomes `0.5.0.0`).
+// The fourth field is what Windows orders upgrades by, so it has to move.
+function msiVersion(v) {
+  const [core, pre = ''] = v.split('+')[0].split('-');
+  const numbers = pre.match(/\d+/g) ?? [];
+  const build = numbers.length ? Number(numbers[numbers.length - 1]) : 0;
+  if (build > 65535) {
+    console.error(`[irixen] pre-release number ${build} does not fit the MSI build field (max 65535)`);
+    process.exit(1);
+  }
+  return `${core}.${build}`;
+}
+
 function currentVersions() {
   const pkg = JSON.parse(read(files.pkg));
   const conf = JSON.parse(read(files.conf));
   const cargo = /^version\s*=\s*"([^"]+)"/m.exec(read(files.cargo))?.[1] ?? '?';
   const label = /pub const DISPLAY_VERSION:\s*&str\s*=\s*"([^"]+)"/.exec(read(files.update))?.[1] ?? '?';
-  return { package: pkg.version, tauri: conf.version, cargo, label };
+  const msi = conf.bundle?.windows?.wix?.version ?? '?';
+  return { package: pkg.version, tauri: conf.version, cargo, msi, label };
 }
 
 const before = currentVersions();
@@ -42,7 +60,8 @@ const args = process.argv.slice(2);
 if (args.length === 0) {
   console.log('[irixen] current versions');
   for (const [k, v] of Object.entries(before)) console.log(`  ${k.padEnd(9)} ${v}`);
-  const same = before.package === before.tauri && before.tauri === before.cargo;
+  const same =
+    before.package === before.tauri && before.tauri === before.cargo && before.msi === msiVersion(before.package);
   console.log(same ? '  manifests in sync' : '  WARNING: manifests differ — run a bump to fix');
   process.exit(same ? 0 : 1);
 }
@@ -94,6 +113,22 @@ const writeJsonVersion = (p) => {
 
 writeJsonVersion(files.pkg);
 writeJsonVersion(files.conf);
+
+// The MSI carries its own numeric version (see msiVersion above). Written here
+// so a bump cannot leave the installer claiming the previous release, which
+// Windows would either refuse to install over or treat as a downgrade.
+const msi = msiVersion(next);
+let conf = read(files.conf);
+if (/"wix"\s*:\s*\{[\s\S]*?"version"/.test(conf)) {
+  conf = conf.replace(/("wix"\s*:\s*\{[\s\S]*?"version"\s*:\s*")[^"]*(")/, `$1${msi}$2`);
+} else {
+  conf = conf.replace(/("wix"\s*:\s*\{)/, `$1\n        "version": "${msi}",`);
+}
+if (!conf.includes(`"${msi}"`)) {
+  console.error('[irixen] could not write bundle.windows.wix.version in tauri.conf.json');
+  process.exit(1);
+}
+writeFileSync(files.conf, conf);
 
 let cargo = read(files.cargo);
 cargo = cargo.replace(/^version\s*=\s*"[^"]+"/m, `version = "${next}"`);
