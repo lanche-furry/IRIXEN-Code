@@ -144,6 +144,8 @@ Every tool call emits `tool_call` (start) and `tool_result` (end), which is what
 
 **Path sandbox**: `tools::resolve()` joins every relative path onto the workspace root, then `canonicalize`s and checks the prefix, erroring out on escape. `run_command` executes with the workspace as cwd, times out at 120 s, and truncates output at 18k characters.
 
+**`security_scan` and `audit.rs`**: the only tool that walks the whole tree, so it runs on `spawn_blocking` — a six-thousand-file sweep must not hold the async thread every other event is queued on. `audit.rs` walks with `ignore`, deliberately `hidden(false)`: `.env` and `.github/workflows` are exactly what an audit is for. The rule table is fixed (cloud credentials, private-key blocks, JWTs, secrets assigned a literal, disabled TLS verification, dynamic execution, SQL built by interpolation, world-writable files, plus two path rules for key material and CI actions not pinned to a SHA). A hit is masked before it becomes evidence: the matched span turns into "4-character head + *** + 3-character tail", so the model sees `AKIA***F7Q2` rather than the key. The scanner only enumerates — whether a hit is exploitable is the model's reading job, and `render()` ends by telling it exactly that, plus that no hit is not the same as safe.
+
 ## 5. Context compression
 
 `context.rs` has three stages, all guided by "keep the conclusions, drop the repetition":

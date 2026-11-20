@@ -145,6 +145,8 @@ while iteration < max_iterations:
 
 **路径沙箱**：`tools::resolve()` 把所有相对路径拼到工作区根，再做 `canonicalize` 并检查前缀，越界直接报错。`run_command` 在工作区 cwd 执行，超时 120s，输出截断 18k 字符。
 
+**`security_scan` 与 `audit.rs`**：唯一会遍历整棵树的工具，所以放在 `spawn_blocking` 里跑——一次六千文件的清扫不该占住所有事件共用的 async 线程。`audit.rs` 用 `ignore` 走一遍，刻意 `hidden(false)`：`.env` 和 `.github/workflows` 本来就是审计对象。规则表是固定的（云厂商密钥、私钥块、JWT、赋给字面量的密钥、关掉的 TLS 校验、动态执行、SQL 字符串插值、全局可写，外加按路径判的密钥文件与未锁 SHA 的 CI action），命中先脱敏再拼进 evidence：匹配区段换成「4 位头 + *** + 3 位尾」，模型看到的是 `AKIA***F7Q2` 而不是真值。扫描器只负责枚举，能不能利用由模型读代码判断——`render()` 结尾把这句话直接写给模型看，并明说「没命中不等于安全」。
+
 ## 5. 上下文压缩
 
 `context.rs` 三步，每步都以"保住结论、丢掉重复"为原则：
