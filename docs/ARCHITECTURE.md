@@ -143,7 +143,27 @@ while iteration < max_iterations:
 
 每次工具调用都 emit `tool_call`（开始）和 `tool_result`（结束），前端据此画出带状态点的工具卡片。
 
-**路径沙箱**：`tools::resolve()` 把所有相对路径拼到工作区根，再做 `canonicalize` 并检查前缀，越界直接报错。`run_command` 在工作区 cwd 执行，超时 120s，输出截断 18k 字符。
+**路径解析**：`tools::resolve()` 把相对路径拼到工作区根，`canonicalize` 后比较前缀；越界能不能放行由当前访问模式决定（见下）。`run_command` 在工作区 cwd 执行，超时 120s，输出截断 18k 字符。
+
+### 访问模式：三档，判断放在纯函数里
+
+`access.rs` 不碰 IO、不碰状态，签名是 `decide(mode, tool, args, workspace) -> Allow | Ask(Request) | Deny(String)`，所以规则集全是单测能覆盖的纯逻辑。三档：
+
+| 模式 | 工作区内读 | 工作区内写 | 越界 | `run_command` |
+| --- | --- | --- | --- | --- |
+| 受限 `restricted` | 放行 | 每次问 | **拒绝**，不是问 | 每次问 |
+| 自动 `auto`（默认） | 放行 | 放行 | 问 | 只问 cwd 越界的 |
+| 完全 `full` | 放行 | 放行 | 放行 | 放行 |
+
+三个刻意的选择：
+
+- **受限模式下越界直接拒，不问。** 问一次就能放行，等于一张无限次口头许可，跟自动模式没区别；受限的含义是这条路不存在，而不是门口站着个人。
+- **`run_command` 不解析 shell 字符串。** `sh -c` 里能写出多少种绕过方式，就有多少种解析器会看错；一个读了 shell 字符串、于是自以为知道它要动什么的权限系统，比一个承认自己看不出来的权限系统更危险。所以命令在受限模式下永远问，在自动模式下只在 cwd 越界时问。
+- **`full` 必须是显式选择。** 配置里没有这个字段等于 `auto`；前端选到 `full` 会提示「这之后不再拦截」。
+
+「问」是真的挂起：`ask_approval()` 把 `oneshot::Sender` 存进 `pending` 表，emit 一条 `approval` 事件带 id，前端把卡片画进对话；用户点允许/拒绝才 `send(bool)` 唤醒那边等着的 `execute_tool`。15 分钟没回答按拒绝处理；`agent_stop` 会把该会话所有挂起的审批一次性按拒绝释放——不能让一个被停掉的回合继续挂在内存里。被拒之后返回给模型的是「用户拒绝了这次调用」加上 `is_error = true`，模型会换个办法，而不是以为工具坏了。
+
+模式也写进 system prompt，后面跟一句「这是用户的选择，你不能自行更改」：模型知道自己什么时候会被拦，就不必花三轮去试同一件事。
 
 **`security_scan` 与 `audit.rs`**：唯一会遍历整棵树的工具，所以放在 `spawn_blocking` 里跑——一次六千文件的清扫不该占住所有事件共用的 async 线程。`audit.rs` 用 `ignore` 走一遍，刻意 `hidden(false)`：`.env` 和 `.github/workflows` 本来就是审计对象。规则表是固定的（云厂商密钥、私钥块、JWT、赋给字面量的密钥、关掉的 TLS 校验、动态执行、SQL 字符串插值、全局可写，外加按路径判的密钥文件与未锁 SHA 的 CI action），命中先脱敏再拼进 evidence：匹配区段换成「4 位头 + *** + 3 位尾」，模型看到的是 `AKIA***F7Q2` 而不是真值。扫描器只负责枚举，能不能利用由模型读代码判断——`render()` 结尾把这句话直接写给模型看，并明说「没命中不等于安全」。
 
@@ -207,6 +227,7 @@ when: 省token, 太长, 精简, 冗长
 | 配置 | `get_config` `save_config` `app_info` `set_workspace` |
 | 供应商 | `provider_upsert` `provider_delete` `provider_test` `models_list` |
 | 会话 | `agent_new_session` `agent_set_active` `agent_messages` `agent_send` `agent_stop` `agent_clear` `agent_set_model` `agent_usage` |
+| 访问控制 | `set_agent_access` `agent_approve` |
 | 文件 | `fs_list` `fs_read` `fs_write` `fs_create_file` `fs_create_dir` `fs_delete` `fs_rename` `fs_search` |
 | Git | `git_is_repo` `git_status` `git_diff` `git_stage` `git_unstage` `git_commit` `git_branch(es)` `git_checkout` `git_log` `git_push` `git_pull` |
 | MCP | `mcp_servers` `mcp_upsert` `mcp_delete` `mcp_start` `mcp_stop` `mcp_tools` |

@@ -142,7 +142,27 @@ while iteration < max_iterations:
 
 Every tool call emits `tool_call` (start) and `tool_result` (end), which is what the UI draws its status-dotted tool cards from.
 
-**Path sandbox**: `tools::resolve()` joins every relative path onto the workspace root, then `canonicalize`s and checks the prefix, erroring out on escape. `run_command` executes with the workspace as cwd, times out at 120 s, and truncates output at 18k characters.
+**Path resolution**: `tools::resolve()` joins every relative path onto the workspace root, then `canonicalize`s and compares prefixes; whether an escape is allowed at all is the current access mode's call (below). `run_command` executes with the workspace as cwd, times out at 120 s, and truncates output at 18k characters.
+
+### Access modes: three steps, decided by a pure function
+
+`access.rs` touches no IO and no state: `decide(mode, tool, args, workspace) -> Allow | Ask(Request) | Deny(String)`, so the whole rule set is pure logic the unit tests can hold down. Three steps:
+
+| Mode | Read inside | Write inside | Outside | `run_command` |
+| --- | --- | --- | --- | --- |
+| Restricted | allowed | asks every time | **denied**, not asked | asks every time |
+| Auto (default) | allowed | allowed | asks | asks only when cwd is outside |
+| Full | allowed | allowed | allowed | allowed |
+
+Three deliberate choices:
+
+- **Restricted denies an escape instead of asking about it.** An ask that can be answered yes once is an unlimited verbal licence, indistinguishable from auto; restricted has to mean the road is not there, not that someone is standing in front of it.
+- **`run_command` does not parse the shell string.** There are as many ways to look wrong at `sh -c` as there are ways to sneak past it, and a permission system that reads a shell string and therefore believes it knows what the command will touch is more dangerous than one that admits it cannot see. So commands always ask under restricted, and under auto they ask only when the cwd leaves the workspace.
+- **`full` has to be a decision.** A config without the field reads as `auto`; picking `full` in the UI says once that nothing will be intercepted after this.
+
+An ask is a real suspension: `ask_approval()` parks a `oneshot::Sender` in the `pending` map, emits an `approval` event carrying an id, and the UI draws a card into the transcript; allow or deny is what calls `send(bool)` and wakes the `execute_tool` waiting on it. No answer within fifteen minutes counts as a denial, and `agent_stop` denies everything still pending for that session at once — a stopped turn must not stay in memory holding senders. What the model gets back after a denial is "the user rejected this call" with `is_error = true`, so it looks for another route instead of concluding the tool is broken.
+
+The mode also goes into the system prompt, followed by "this is the user's choice, you cannot change it": a model that knows where the fence is does not spend three rounds walking into it.
 
 **`security_scan` and `audit.rs`**: the only tool that walks the whole tree, so it runs on `spawn_blocking` — a six-thousand-file sweep must not hold the async thread every other event is queued on. `audit.rs` walks with `ignore`, deliberately `hidden(false)`: `.env` and `.github/workflows` are exactly what an audit is for. The rule table is fixed (cloud credentials, private-key blocks, JWTs, secrets assigned a literal, disabled TLS verification, dynamic execution, SQL built by interpolation, world-writable files, plus two path rules for key material and CI actions not pinned to a SHA). A hit is masked before it becomes evidence: the matched span turns into "4-character head + *** + 3-character tail", so the model sees `AKIA***F7Q2` rather than the key. The scanner only enumerates — whether a hit is exploitable is the model's reading job, and `render()` ends by telling it exactly that, plus that no hit is not the same as safe.
 
@@ -206,6 +226,7 @@ Three install sources: a local directory, a `http(s)` `SKILL.md`, or a Git repos
 | Config | `get_config` `save_config` `app_info` `set_workspace` |
 | Providers | `provider_upsert` `provider_delete` `provider_test` `models_list` |
 | Sessions | `agent_new_session` `agent_set_active` `agent_messages` `agent_send` `agent_stop` `agent_clear` `agent_set_model` `agent_usage` |
+| Access control | `set_agent_access` `agent_approve` |
 | Files | `fs_list` `fs_read` `fs_write` `fs_create_file` `fs_create_dir` `fs_delete` `fs_rename` `fs_search` |
 | Git | `git_is_repo` `git_status` `git_diff` `git_stage` `git_unstage` `git_commit` `git_branch(es)` `git_checkout` `git_log` `git_push` `git_pull` |
 | MCP | `mcp_servers` `mcp_upsert` `mcp_delete` `mcp_start` `mcp_stop` `mcp_tools` |

@@ -1037,9 +1037,10 @@ async function setAccess(access: AgentAccess) {
   if (access === 'full') toast(t('access.fullWarn'), 'info', 6000);
 }
 
-function pickModel(anchor: HTMLElement) {  // Merely opening the picker is not consent to start a local server or
-  // hidden browser windows. Web2API models appear after the user enables
-  // "start on launch" or explicitly picks one (which starts it on demand).
+// Merely opening the picker is not consent to start a local server or hidden
+// browser windows. Web2API models appear after the user enables "start on
+// launch" or explicitly picks one (which starts it on demand).
+function pickModel(anchor: HTMLElement) {
   const items = app.models.map((m) => ({
     label: m.display_name && m.display_name !== m.id ? m.display_name : m.id,
     // Two providers can expose the same id (gpt-4o is a Web2API alias too).
