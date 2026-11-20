@@ -43,7 +43,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["msi"],
+    "targets": ["nsis"],
     "publisher": "IRIXEN",
     "copyright": "© 2026 IRIXEN",
     "category": "DeveloperTool",
@@ -67,9 +67,9 @@
       "webviewInstallMode": {
         "type": "downloadBootstrapper"
       },
-      "wix": {
-        "version": "0.4.0.1",
-        "language": ["en-US", "zh-CN"]
+      "nsis": {
+        "languages": ["English", "SimpChinese"],
+        "displayLanguageSelector": true
       }
     }
   }

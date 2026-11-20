@@ -841,13 +841,13 @@ pub fn config_path() -> PathBuf {
 // which kept antivirus heuristics from reading "the installer deleted
 // %APPDATA%" as hijacker behaviour.
 //
-// The MSI installer cannot carry that hook without a custom WiX action, and the
-// marker itself is impossible now: an MSI install is per-machine under
-// `C://Program Files`, which the unelevated app cannot write to, while a marker
-// written unconditionally would wipe the profile on every upgrade — strictly
-// worse than a stale one. So the reset is gone. Install and uninstall both
+// The installer no longer carries that hook: Beta 0.4 deleted
+// `src-tauri/installer.nsh` (Avira had flagged the signed Beta 0.2 package as
+// TR/Hijacker.Gen, and "an installer fiddling with config under AppData" is the
+// signature it was matching). NSIS is still the installer, so keeping the hook
+// would have been possible — it is gone on purpose. Install and uninstall both
 // leave `%APPDATA%\IRIXEN Code` alone; a clean start is an explicit
-// `rm -r %APPDATA%\IRIXEN Code` (spelled out in the Beta 0.4 notes).
+// `rm -r %APPDATA%\IRIXEN Code` or the "restore defaults" button.
 
 pub fn skills_dir() -> PathBuf {
     base_dir().join("skills")

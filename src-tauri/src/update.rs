@@ -293,33 +293,27 @@ pub struct Downloaded {
 
 /// The installer this build can actually run.
 ///
-/// Windows ships MSI (WiX). Two cultures are published and they differ only in
-/// the installer's own UI language, so prefer the one matching the app and fall
-/// back to anything that ends in `.msi` — better an English wizard than "no
-/// package for this platform".
+/// Windows publishes NSIS (`*-setup.exe`) only — one file that carries both
+/// wizard languages and asks which one at run time, so there is nothing to
+/// choose here.
 ///
 /// Linux publishes an AppImage and a deb: the deb needs root, so the AppImage
 /// is the one thing that can be replaced by the same user running the app.
-fn installer_asset<'a>(assets: &'a [UpdateAsset], lang: &str) -> Option<&'a UpdateAsset> {
+fn installer_asset(assets: &[UpdateAsset]) -> Option<&UpdateAsset> {
     #[cfg(windows)]
     {
         let name = |a: &UpdateAsset| a.name.to_ascii_lowercase();
-        let is_msi = |a: &&UpdateAsset| name(a).ends_with(".msi");
-        let culture = if lang.to_ascii_lowercase().starts_with("zh") { "zh-cn" } else { "en-us" };
         return assets
             .iter()
-            .filter(is_msi)
-            .find(|a| name(a).contains(culture))
-            .or_else(|| assets.iter().find(is_msi));
+            .find(|a| name(a).ends_with(".exe") && name(a).contains("setup"));
     }
     #[cfg(target_os = "linux")]
     {
-        let _ = lang;
         return assets.iter().find(|a| a.name.ends_with(".AppImage"));
     }
     #[cfg(not(any(windows, target_os = "linux")))]
     {
-        let _ = (assets, lang);
+        let _ = assets;
         None
     }
 }
@@ -367,12 +361,12 @@ async fn fetch_text(client: &reqwest::Client, url: &str, proxy: &str) -> Result<
 /// hash from `checksums.txt` when the release has one. A hash that disagrees
 /// deletes the download rather than offering the user a choice — there is no
 /// good reason to run a binary whose published hash it does not match.
-pub async fn download(proxy: &str, app: &AppHandle, lang: &str) -> Result<Downloaded, String> {
+pub async fn download(proxy: &str, app: &AppHandle) -> Result<Downloaded, String> {
     let latest = check(proxy, false).await?;
     if !latest.has_update {
         return Err("已经是最新版本".into());
     }
-    let asset = installer_asset(&latest.assets, lang)
+    let asset = installer_asset(&latest.assets)
         .ok_or("这个版本没有适用于当前平台的安装包，请到发布页手动下载")?
         .clone();
     let client = net::build_client(proxy);
@@ -461,14 +455,12 @@ pub async fn download(proxy: &str, app: &AppHandle, lang: &str) -> Result<Downlo
 pub fn apply(path: &str) -> Result<(), String> {
     #[cfg(windows)]
     {
-        // A `.msi` is not an executable, so it goes through `msiexec` rather
-        // than being spawned directly. `/passive` keeps the progress bar and
-        // the UAC prompt — the install is per-machine — while `/norestart`
-        // stops Windows from rebooting the machine under the user.
-        std::process::Command::new("msiexec")
-            .args(["/i", path, "/passive", "/norestart"])
+        // No `/S`: a silent install leaves the user staring at a window that
+        // vanished, with no idea whether anything happened. The NSIS wizard
+        // also asks which language, which is one more reason to show it.
+        std::process::Command::new(path)
             .spawn()
-            .map_err(|e| format!("无法启动 msiexec：{e}"))?;
+            .map_err(|e| format!("无法启动安装程序：{e}"))?;
     }
     #[cfg(target_os = "linux")]
     {
@@ -594,41 +586,6 @@ mod tests {
 
     /// The release you are running is never an update to itself, however the
     /// tag happens to sort against the packaged semver.
-    /// `checksums.txt` lists every asset; picking the wrong line would verify
-    /// the installer against some other file's hash and refuse to install.
-    #[test]
-    fn a_checksum_is_matched_by_file_name() {
-        let a = "a".repeat(64);
-        let b = "b".repeat(64);
-        let text = format!("{a}  IRIXEN.Code_x64-setup.msi\n{b}  *other.AppImage\n");
-        assert_eq!(parse_checksums(&text, "IRIXEN.Code_x64-setup.msi"), Some(a));
-        assert_eq!(parse_checksums(&text, "other.AppImage"), Some(b));
-        assert_eq!(parse_checksums(&text, "absent.msi"), None);
-        // A malformed line must not pass as a hash.
-        assert_eq!(parse_checksums("deadbeef  x.exe", "x.exe"), None);
-    }
-
-    /// Two MSI cultures ship per release, and they differ only in the wizard's
-    /// language. The app's own language picks one; an unknown language must
-    /// still update rather than report "no package for this platform".
-    #[cfg(windows)]
-    #[test]
-    fn the_msi_matching_the_ui_language_wins() {
-        let asset = |n: &str| UpdateAsset {
-            name: n.to_string(),
-            size: 1,
-            download_url: String::new(),
-        };
-        let all = vec![
-            asset("IRIXEN Code_0.4.0-beta.1_x64_en-US.msi"),
-            asset("IRIXEN Code_0.4.0-beta.1_x64_zh-CN.msi"),
-        ];
-        assert_eq!(installer_asset(&all, "zh-CN").unwrap().name, all[1].name);
-        assert_eq!(installer_asset(&all, "en-US").unwrap().name, all[0].name);
-        assert!(installer_asset(&all, "ja-JP").is_some(), "unknown language falls back");
-        assert!(installer_asset(&[asset("x.AppImage")], "zh-CN").is_none());
-    }
-
     #[test]
     fn the_running_release_is_not_its_own_update() {
         assert!(is_current_label("Beta0.2", "Beta 0.2"));
@@ -637,5 +594,39 @@ mod tests {
         assert!(!is_current_label("Beta0.3", "Beta 0.2"));
         assert!(!is_current_label("nightly", "Beta 0.2"));
         assert_eq!(compare_semver("Beta0.2", "0.2.0-beta.1"), Ordering::Greater);
+    }
+
+    /// `checksums.txt` lists every asset; picking the wrong line would verify
+    /// the installer against some other file's hash and refuse to install.
+    #[test]
+    fn a_checksum_is_matched_by_file_name() {
+        let a = "a".repeat(64);
+        let b = "b".repeat(64);
+        let text = format!("{a}  IRIXEN.Code_x64-setup.exe\n{b}  *other.AppImage\n");
+        assert_eq!(parse_checksums(&text, "IRIXEN.Code_x64-setup.exe"), Some(a.clone()));
+        assert_eq!(parse_checksums(&text, "other.AppImage"), Some(b));
+        assert_eq!(parse_checksums(&text, "absent.exe"), None);
+        // A malformed line must not pass as a hash.
+        assert_eq!(parse_checksums("deadbeef  x.exe", "x.exe"), None);
+    }
+
+    /// One NSIS installer per release carries both wizard languages, so the
+    /// only decision is picking the `-setup.exe` over the Linux bundles — and
+    /// refusing to offer a download when the release has no exe at all.
+    #[cfg(windows)]
+    #[test]
+    fn the_setup_exe_is_the_windows_installer() {
+        let asset = |n: &str| UpdateAsset {
+            name: n.to_string(),
+            size: 1,
+            download_url: String::new(),
+        };
+        let all = vec![
+            asset("IRIXEN_Code_0.4.0-beta.1_amd64.AppImage"),
+            asset("IRIXEN_Code_0.4.0-beta.1_amd64.deb"),
+            asset("IRIXEN.Code_0.4.0-beta.1_x64-setup.exe"),
+        ];
+        assert_eq!(installer_asset(&all).unwrap().name, all[2].name);
+        assert!(installer_asset(&all[..2]).is_none(), "no exe, no Windows download");
     }
 }

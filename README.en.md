@@ -114,7 +114,7 @@ DSH-style repos (skill packs with a `SKILL.md`) are recognized as type `dsh` and
 
 Release assets are published per platform:
 
-- **Windows installer (recommended)**: on [Releases](https://github.com/lanche-furry/IRIXEN-Code/releases/latest) download `IRIXEN.Code_*_x64_en-US.msi` (or `_zh-CN.msi`) and run it. The **MSI** installs under `Program Files`, shows a UAC prompt once, creates Start Menu / desktop shortcuts and bootstraps the WebView2 Runtime (Win10 needs internet; Win11 has it built in). Upgrading from Beta 0.3 or an earlier NSIS build? Uninstall the old one first, or the machine ends up with two copies.
+- **Windows installer (recommended)**: on [Releases](https://github.com/lanche-furry/IRIXEN-Code/releases/latest) download `IRIXEN.Code_*_x64-setup.exe` and run it. The **NSIS** installer is a per-user install under `%LOCALAPPDATA%\IRIXEN Code`: no administrator rights, a language choice while it runs, Start Menu / desktop shortcuts, and the WebView2 Runtime bootstrapped for you (Win10 needs internet; Win11 has it built in). It never touches your profile, so settings and sessions survive an upgrade. Machines that installed the early Beta 0.4 MSI should uninstall that build first.
 - **Linux**: from the same page take `IRIXEN_Code_*_amd64.AppImage` (`chmod +x`, then run) or `IRIXEN_Code_*_amd64.deb` (`sudo apt install ./…deb`). The system must provide `libwebkit2gtk-4.1-0` and `libgtk-3-0`; the deb pulls them in, the AppImage does not bundle system libraries. Ubuntu 22.04+ / Debian 12+ run it directly.
 
 > WebView2 Runtime is required: Win11 has it built in; Win10 gets it via the installer over the internet.
@@ -127,7 +127,7 @@ Daily builds live in the [nightly](https://github.com/lanche-furry/IRIXEN-Code/r
 npm install
 npm run app:dev      # develop (auto-starts vite + tauri)
 npm run app:release  # build the standalone release exe (--no-bundle)
-npm run app:build    # build the MSI installer
+npm run app:build    # build the NSIS installer
 ```
 
 After first launch: go to `Settings → Providers`, enter the Base URL and API Key, click **Test connection**, and the model list appears automatically; then pick a model and a thinking-effort level above the chat box.

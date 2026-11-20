@@ -1346,11 +1346,11 @@ pub async fn app_download_update(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<crate::update::Downloaded, String> {
-    let (proxy, lang) = {
+    let proxy = {
         let cfg = crate::util::lock(&state.config);
-        (cfg.proxy.clone(), cfg.language.clone())
+        cfg.proxy.clone()
     };
-    crate::update::download(&proxy, &app, &lang).await
+    crate::update::download(&proxy, &app).await
 }
 
 /// Start the downloaded installer and quit, so it can replace this exe.

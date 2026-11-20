@@ -31,7 +31,7 @@
 npm run check                 # cargo check（不产出可执行文件）
 npm run app:dev               # tauri dev（vite + 窗口，仅开发）
 npm run app:release           # tauri build --no-bundle（只出 release exe）
-npm run app:build             # tauri build（MSI 安装包）
+npm run app:build             # tauri build（NSIS 安装包）
 node scripts/build.mjs tauri dev --no-watch
 ```
 
@@ -76,7 +76,7 @@ npx tauri build
 
 ## Linux 构建
 
-Windows 之外只有一条受支持的路径，且 Linux 的包必须显式点名——`tauri.conf.json` 的 `bundle.targets` 写的是 `["msi"]`：
+Windows 之外只有一条受支持的路径，且 Linux 的包必须显式点名——`tauri.conf.json` 的 `bundle.targets` 写的是 `["nsis"]`：
 
 ```bash
 npx tauri build --bundles deb,appimage
@@ -116,12 +116,12 @@ npm run icons
 
 ```
 E:/irixen-build/release/irixen-code.exe
-E:/irixen-build/release/bundle/msi/IRIXEN Code_0.4.0-beta.1_x64_zh-CN.msi
+E:/irixen-build/release/bundle/nsis/IRIXEN Code_0.4.0-beta.1_x64-setup.exe
 ```
 
 `CARGO_TARGET_DIR` 固定在盘根 `E:/irixen-build`（路径不能含空格，否则 MinGW `windres` 预处理失败）。`node scripts/build.mjs tauri dev/build` 这类命令必须走 Tauri CLI：裸 `cargo build` 拿不到构建上下文，会去加载 `devUrl` 的 `http://localhost:5173/` 而不是内嵌的 `dist/`，窗口就会显示"localhost 拒绝连接"。
 
-**不产出 debug 版本。** `build.mjs` 的 `dev` / `run` 已禁用，裸 `build` 自动补 `--release`；`cargo check` 只做类型检查不留可执行文件。发行版一律用 `npm run app:release`（只出 exe）或 `npm run app:build`（额外出 MSI 包）。界面显示的版本号统一为 `Beta 0.1`，包元数据保持合法 semver `0.1.0-beta.1`。
+**不产出 debug 版本。** `build.mjs` 的 `dev` / `run` 已禁用，裸 `build` 自动补 `--release`；`cargo check` 只做类型检查不留可执行文件。发行版一律用 `npm run app:release`（只出 exe）或 `npm run app:build`（额外出 NSIS 包）。界面显示的版本号统一为 `Beta 0.1`，包元数据保持合法 semver `0.1.0-beta.1`。
 
 release profile 已针对体积调优：
 
@@ -147,7 +147,7 @@ WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222 npm run app:d
 
 ### 测试实例必须隔离配置目录（`IRIXEN_HOME`）
 
-窗口读的是**真实用户配置** `%APPDATA%\IRIXEN Code`（`config::base_dir`）。用 CDP 点完首次启动向导、改过主题、选过供应商，写下的就是这份正式配置；之后再安装 MSI 包同样不会重置它：应用会认为"已经初始化过"，**首次启动设置不会再出现**，看起来就像安装后没有初始化（MSI 不再自动清理配置，见下节）。
+窗口读的是**真实用户配置** `%APPDATA%\IRIXEN Code`（`config::base_dir`）。用 CDP 点完首次启动向导、改过主题、选过供应商，写下的就是这份正式配置；之后再安装 NSIS 包同样不会重置它：应用会认为"已经初始化过"，**首次启动设置不会再出现**，看起来就像安装后没有初始化（安装器不碰配置，见下节）。
 
 所以任何自动化/手动验证都要把配置指到临时目录：
 
@@ -161,21 +161,21 @@ IRIXEN_HOME="E:/irixen-build/_probe-home" \
 
 ### 安装包与残留配置
 
-Windows 安装包是 **MSI**（WiX），不再是 NSIS。`bundle.targets = ["msi"]`，`bundle.windows.wix.language = ["en-US", "zh-CN"]` 出两个语言版本：安装界面语言不同，装的东西一样。
+Windows 安装包是 **NSIS**（`bundle.targets = ["nsis"]`）：per-user 安装，不要管理员权限。`bundle.windows.nsis.languages = ["English", "SimpChinese"]` 且开了 `displayLanguageSelector`——一个安装包，装的时候选界面语言。
 
-换 MSI 不是为了口味。旧 NSIS 安装器的钩子在 `%APPDATA%` 里复制、删除本应用的配置文件，而"安装包动 AppData 里的配置"正是通用杀软启发式的靶心——Avira 把带签名的 Beta 0.2 安装包报成 `TR/Hijacker.Gen`（28 引擎里 1 家），Beta 0.1 是同一个家族名。MSI 的安装器只登记并安装自己的组件，没有可以写这种逻辑的地方。
+**安装器不碰 `%APPDATA%`。** Beta 0.2 的安装器在 `PREINSTALL` 里复制并删除本应用的 `config.json`、`model-cache.json`，而"安装包动 AppData 里的配置文件"正是通用杀软启发式的靶心——Avira 把带签名的 Beta 0.2 报成 `TR/Hijacker.Gen`（28 引擎里 1 家），Beta 0.1 是同一个家族名。Beta 0.4 把 `installer.nsh` 整个删掉了：安装器还是 NSIS，但它只解压自己的文件、登记卸载信息，别的一概不碰。安装器替用户清空配置这件事，不会再为了"省事"加回来。
 
-- **安装和卸载都不碰 `%APPDATA%`**：配置、会话、密钥原样保留。要干净重来，手动删掉 `%APPDATA%\IRIXEN Code` 与 WebView2 缓存 `%LOCALAPPDATA%\com.irixen.code`，或者用设置 → 通用里的「恢复默认配置」。
-- **升级是覆盖安装**：MSI 按 `UpgradeCode` 处理旧版本，不必先卸载。应用内「下载并安装」会校验 SHA-256 后执行 `msiexec /i <msi> /passive /norestart`，然后自己退出。
-- **需要管理员权限**：MSI 是 per-machine，装进 `Program Files`，安装时会弹 UAC。这一点和 NSIS 的 per-user 安装不同——Beta 0.3 及更早的 NSIS 版本请先卸载，再装 MSI，否则机器上会有两份。
-- **没有"卸载时删除应用数据"勾选框**：MSI 卸载只删自己装的文件，配置目录留着，需要时手动删。
-- **MSI 的版本号是四段纯数字**：WiX 的 `ProductVersion` 只接受 `major.minor.patch.build`，`0.4.0-beta.1` 会被 `tauri build` 直接拒掉（"optional pre-release identifier in app version must be numeric-only"）。所以 `bundle.windows.wix.version` 单独写一份，由 `npm run bump` 从 semver 推出来：`0.4.0-beta.1` → `0.4.0.1`，`0.5.0` → `0.5.0.0`。Windows 是按第四段排升级顺序的，漏改就等于发布一个"比已装的旧"的安装包，`release.yml` 里有一道检查专门盯这个。
+- **安装不动配置**：`%APPDATA%\IRIXEN Code` 原样保留，升级后设置、会话、密钥都在。要干净重来，删掉 `%APPDATA%\IRIXEN Code` 与 WebView2 缓存 `%LOCALAPPDATA%\com.irixen.code`，或者走设置 → 关于 → 维护 → **恢复默认设置**（`config_reset`，旧文件备份成 `config.json.bak-<时间戳>` 后重载窗口，向导会重新出现）。
+- **全新安装会跑向导**：因为那时还没有 `config.json`，不是靠安装器写标记实现的（早期版本有个 `first-run.marker`，已随 NSIS 钩子一起删掉）。
+- **应用内更新**：关于页的「下载并安装」先取 `checksums.txt` 校验 SHA-256，再把 `*-setup.exe` 拉起来，然后自己退出。不加 `/S`：静默安装会让用户盯着一个一闪而过的窗口，猜刚才到底发生了什么。
+- **卸载**：只删自己装的文件，配置目录留着。没有"卸载时删除应用数据"勾选框——删数据是用户自己的决定。
+- **装过 Beta 0.4 早期 MSI 包的机器要先卸载**：那一版是 per-machine 的 MSI（装进 `Program Files`），现在是 per-user 的 NSIS，两者互不知道对方存在，直接装会在机器上留两份。
 
 `nightly` 是预发布，且 tag 名不含数字，`is_version_tag` 会把它排除，所以每日构建永远不会弹窗提示普通用户升级。
 
 ## Windows 签名
 
-`release.yml` 在打包后调用 `scripts/sign-windows.ps1`，给 `irixen-code.exe` 和 MSI 安装包加上 Authenticode 签名（SHA256 + DigiCert 时间戳）。证书来自两个仓库 Secrets：
+`release.yml` 在打包后调用 `scripts/sign-windows.ps1`，给 `irixen-code.exe` 和 NSIS 安装包加上 Authenticode 签名（SHA256 + DigiCert 时间戳）。证书来自两个仓库 Secrets：
 
 | Secret | 内容 |
 | --- | --- |
@@ -217,7 +217,7 @@ git push origin main
 git tag Beta0.2 && git push origin Beta0.2
 ```
 
-推 tag 会触发 `.github/workflows/release.yml`：Windows 打 MSI、Linux 打 deb + AppImage，然后发布为 **latest 频道**（`--latest`、非 prerelease），所以应用内「检查更新」会把它当作最新版。发布说明取自 `docs/release-notes/<tag>.md`，该文件不存在则用 GitHub 自动生成的版本。
+推 tag 会触发 `.github/workflows/release.yml`：Windows 打 NSIS、Linux 打 deb + AppImage，然后发布为 **latest 频道**（`--latest`、非 prerelease），所以应用内「检查更新」会把它当作最新版。发布说明取自 `docs/release-notes/<tag>.md`，该文件不存在则用 GitHub 自动生成的版本。
 
 发布时还会把 `sha256sum *` 的结果写成 `checksums.txt` 一起上传。**这个文件是应用内一键更新的前提**：关于页的「下载并安装」会先取它，用里面登记的 SHA256 校验下载到的安装包，不匹配就删掉文件并报错，不给你「要不要继续」的选项。`nightly` 频道同样生成。
 

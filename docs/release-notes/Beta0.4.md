@@ -1,8 +1,8 @@
 # IRIXEN Code Beta 0.4
 
-这一版做两件事：让代理在改代码之前能先查出已经存在的危险，以及让它知道哪些动作该先问你。顺带把 Windows 安装器从 NSIS 换成了 MSI。
+这一版做两件事：让代理在改代码之前能先查出已经存在的危险，以及让它知道哪些动作该先问你。顺带把 Windows 安装器里那段会改 `%APPDATA%` 的钩子删掉了。
 
-This release does two things: it gives the agent a way to find the dangers already in the code before it changes any, and it teaches it which actions should ask first. The Windows installer also moved from NSIS to MSI.
+This release does two things: it gives the agent a way to find the dangers already in the code before it changes any, and it teaches it which actions should ask first. The Windows installer also lost the hook that used to write into `%APPDATA%`.
 
 ## 新功能 / New features
 
@@ -33,12 +33,12 @@ There is a new picker above the composer, next to the effort knob. How much rope
 - 代理真的会停住，不是演一下：工具调用挂在 Rust 侧等回执，你在卡片上选了才继续；点「停止」会连带撤销正在等待的那次确认，15 分钟没人回答按拒绝处理 / The agent really stops, it does not perform a pause: the tool call parks in Rust until you answer the card. Stop cancels any pending approval too, and fifteen minutes of silence counts as a refusal
 - 当前模式会写进系统提示，模型知道自己什么时候会被拦，不会为一个它早就知道会被拒的调用浪费回合 / The active mode is written into the system prompt, so the model knows when a call will be intercepted and does not burn a turn on something it already knows will be refused
 
-## Windows 安装器换成 MSI / The Windows installer is now MSI
+## Windows 安装器：钩子删了，还是 NSIS / The Windows installer: hooks gone, still NSIS
 
-- 安装包从 NSIS 换成 **MSI**（WiX），每个版本出 `en-US` 与 `zh-CN` 两个语言版本，装的东西一样，只有向导语言不同 / The Windows package moved from NSIS to **MSI** (WiX), published per release in `en-US` and `zh-CN`. Same payload, different wizard language
-- 换的原因不是口味：旧 NSIS 钩子在 `%APPDATA%` 里复制、删除本应用的配置文件，而"安装包动 AppData"正是杀软启发式的靶心——带签名的 Beta 0.2 被 Avira 报成 `TR/Hijacker.Gen`。MSI 的安装器没有可以写这种逻辑的地方 / The reason is not taste: the old NSIS hooks copied and deleted this app's config under `%APPDATA%`, and "an installer touching AppData" is exactly what heuristics look for — the signed Beta 0.2 package was flagged `TR/Hijacker.Gen` by Avira. An MSI has nowhere to put that kind of logic
-- 代价说清楚：安装和卸载都不再碰 `%APPDATA%`，第一次安装也不会自动清空旧配置。要干净重来请手动删掉 `%APPDATA%\IRIXEN Code`，或用设置里的「恢复默认配置」 / The cost, stated plainly: neither install nor uninstall touches `%APPDATA%` any more, so a first install no longer clears a stale profile. For a clean start, delete `%APPDATA%\IRIXEN Code` by hand or use "reset to defaults" in Settings
-- 应用内更新改成先校验再把 `msiexec /i <msi> /passive /norestart` 拉起来，然后自己退出。MSI 是 per-machine，会弹一次 UAC / In-app updates now verify the file, hand it to `msiexec /i <msi> /passive /norestart`, and quit. An MSI is per-machine, so Windows shows one UAC prompt
+- 安装器还是 **NSIS**，per-user 安装，不需要管理员权限，一个包装机选 `English` 或 `简体中文` / The installer is still **NSIS** — a per-user install with no administrator rights, and one package that asks for English or Simplified Chinese while it runs
+- 删掉的是 `src-tauri/installer.nsh`：Beta 0.1 到 0.3 在 `PREINSTALL` 里复制并删除本应用的 `config.json`、`model-cache.json`，而"安装包动 AppData 里的配置文件"正是杀软启发式的靶心——带签名的 Beta 0.2 被 Avira 报成 `TR/Hijacker.Gen` / What went away is `src-tauri/installer.nsh`: Beta 0.1 through 0.3 copied and then deleted this app's `config.json` and `model-cache.json` during `PREINSTALL`, and "an installer fiddling with config files under AppData" is exactly what heuristics look for — the signed Beta 0.2 package was flagged `TR/Hijacker.Gen` by Avira
+- 代价说清楚：安装不再自动清空旧配置，从 Beta 0.3 升级上来设置、会话、密钥都在。要干净重来请删掉 `%APPDATA%\IRIXEN Code`，或用设置里的「恢复默认配置」 / The cost, stated plainly: installing no longer clears a stale profile, so coming from Beta 0.3 your settings, sessions and keys survive. For a clean start, delete `%APPDATA%\IRIXEN Code` or use "reset to defaults" in Settings
+- 应用内更新还是先校验 SHA-256 再把 `*-setup.exe` 拉起来，然后自己退出；安装向导会正常显示，不静默 / In-app updates still verify the SHA-256, launch the `*-setup.exe`, and quit. The wizard shows itself; nothing is installed silently
 
 ## 可靠性与流程 / Reliability and process
 
@@ -52,14 +52,14 @@ There is a new picker above the composer, next to the effort knob. How much rope
 
 ## 安装 / Install
 
-- **Windows x64**：`IRIXEN.Code_0.4.0-beta.1_x64_zh-CN.msi`（或 `_en-US.msi`），双击安装；会弹一次 UAC，装进 `Program Files`，创建开始菜单与桌面快捷方式并自动补齐 WebView2 Runtime / `IRIXEN.Code_0.4.0-beta.1_x64_zh-CN.msi` (or `_en-US.msi`) — run it. One UAC prompt, installs under `Program Files`, creates Start Menu and desktop shortcuts and bootstraps the WebView2 Runtime
+- **Windows x64**：`IRIXEN.Code_0.4.0-beta.1_x64-setup.exe`，双击安装；per-user，不需要管理员权限，装的时候选界面语言，创建开始菜单与桌面快捷方式并自动补齐 WebView2 Runtime / `IRIXEN.Code_0.4.0-beta.1_x64-setup.exe` — run it. A per-user install with no administrator rights, a language choice while it runs, Start Menu and desktop shortcuts, and the WebView2 Runtime bootstrapped for you
 - **Linux x64（通用）**：`IRIXEN_Code_0.4.0-beta.1_amd64.AppImage`，`chmod +x` 后直接运行 / `IRIXEN_Code_0.4.0-beta.1_amd64.AppImage` — `chmod +x` it, then run it
 - **Linux x64（Debian/Ubuntu）**：`sudo apt install ./IRIXEN_Code_0.4.0-beta.1_amd64.deb`，依赖会自动拉取 / `sudo apt install ./IRIXEN_Code_0.4.0-beta.1_amd64.deb` — dependencies come with it
 
 ## 说明 / Notes
 
-- **从 Beta 0.3 或更早的 NSIS 版本升级，请先卸载**：NSIS 是 per-user、MSI 是 per-machine，直接覆盖会在机器上留下两份。/ **Coming from Beta 0.3 or an earlier NSIS build? Uninstall first**: NSIS installed per-user and the MSI installs per-machine, so installing over the top leaves two copies
-- **本页附件已重建过一次**：还是 Beta 0.4，但把 NSIS 安装包换成了 MSI，SHA-256 与最早下载到的那批不同，请以 `checksums.txt` 为准 / **The assets on this page were rebuilt**: still Beta 0.4, but the Windows package is now an MSI, so its SHA-256 differs from the first batch — trust `checksums.txt`
+- **从 Beta 0.3 及更早版本升级**：直接装即可，同为 per-user，安装器按卸载登记覆盖。**本页曾经发布过的 MSI 版必须先卸载**——那是 per-machine、装在 `Program Files`，和现在的 per-user 安装互不知道对方存在 / **Upgrading from Beta 0.3 or earlier**: just install; both are per-user and the installer overwrites through its uninstall registry entry. **The MSI build this page carried for a while must be uninstalled first** — it was per-machine under `Program Files`, and the two install modes know nothing about each other
+- **本页附件重建过**：还是 Beta 0.4，Windows 包换回过 NSIS（并删掉了钩子），SHA-256 与更早下载到的任何一批都不同，请以 `checksums.txt` 为准 / **The assets on this page were rebuilt**: still Beta 0.4, but the Windows package is NSIS again (without the hooks), so its SHA-256 differs from every earlier batch — trust `checksums.txt`
 - **扫描干净不等于安全**：规则表只管模式级问题，依赖漏洞、基础设施配置、运行时状态都不在范围内，报告结尾会明说，别把它当成一次完整渗透测试 / **A clean scan is not safety**: the rule table only covers pattern-level issues. Dependency CVEs, infrastructure configuration and runtime state are out of scope, the report says so, and none of this substitutes for a penetration test
 - Windows 安装包带**自签名证书**（签名者 `CN=IRIXEN`），SmartScreen 仍可能提示「未知发布者」，首次运行点「更多信息 → 仍要运行」；彻底消掉需要 OV/EV 证书 / The installer is **self-signed** (`CN=IRIXEN`), so SmartScreen may still warn about an unknown publisher — click "More info → Run anyway" on first launch. Removing that for good needs an OV/EV certificate
 - Linux 版仍未经真机冒烟测试，CI 只做静态校验；遇到启动即退出请附上终端输出 / The Linux build is still not smoke-tested on real hardware — CI only checks the packages statically. If it exits on startup, please attach the terminal output

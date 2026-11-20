@@ -114,7 +114,7 @@ DSH 风格的仓库（带 `SKILL.md` 的技能包）会被识别为 `dsh` 类型
 
 发布资产按平台提供：
 
-- **Windows 安装程序（推荐）**：在 [Releases](https://github.com/lanche-furry/IRIXEN-Code/releases/latest) 下载 `IRIXEN.Code_*_x64_zh-CN.msi`（或 `_en-US.msi`），双击安装。**MSI** 会装到 `Program Files`、弹一次 UAC，创建开始菜单与桌面快捷方式，并自动补齐 WebView2 Runtime（Win10 需联网；Win11 自带）。从 Beta 0.3 及更早的 NSIS 版本升级，请先卸载旧版再装，否则机器上会有两份。
+- **Windows 安装程序（推荐）**：在 [Releases](https://github.com/lanche-furry/IRIXEN-Code/releases/latest) 下载 `IRIXEN.Code_*_x64-setup.exe`，双击安装。**NSIS** 是 per-user 安装，装进 `%LOCALAPPDATA%\IRIXEN Code`，不需要管理员权限，装的时候选界面语言，创建开始菜单与桌面快捷方式，并自动补齐 WebView2 Runtime（Win10 需联网；Win11 自带）。安装器不碰你的配置目录，设置与会话在升级后原样保留。装过 Beta 0.4 早期 MSI 包的机器请先卸载那个版本。
 - **Linux**：同一页下载 `IRIXEN_Code_*_amd64.AppImage`（`chmod +x` 后直接运行）或 `IRIXEN_Code_*_amd64.deb`（`sudo apt install ./…deb`）。需要系统提供 `libwebkit2gtk-4.1-0` 与 `libgtk-3-0`，deb 会自动拉依赖；AppImage 不带系统库。Ubuntu 22.04+ / Debian 12+ 可直接运行。
 
 > 需要 WebView2 Runtime：Win11 自带；Win10 由安装程序联网补齐。
@@ -127,7 +127,7 @@ DSH 风格的仓库（带 `SKILL.md` 的技能包）会被识别为 `dsh` 类型
 npm install
 npm run app:dev      # 开发（自动拉起 vite + tauri）
 npm run app:release  # 出 release 独立 exe（--no-bundle）
-npm run app:build    # 出 MSI 安装包
+npm run app:build    # 出 NSIS 安装包
 ```
 
 首次启动后：`设置 → 供应商`，填入 Base URL 与 API Key，点**测试连接**，模型列表会自动出现；然后在对话框上方选模型与思考强度。

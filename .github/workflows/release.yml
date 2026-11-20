@@ -63,10 +63,10 @@ jobs:
       # `tauri build` runs beforeBuildCommand (`npm run build`) itself, so the
       # type check is covered here too.
       #
-      # MSI, not NSIS: generic antivirus heuristics have fired on three NSIS
-      # builds in a row, and WiX only runs on Windows — which is why this job
-      # builds the installer and the Linux job cannot.
-      - name: Build MSI installers
+      # NSIS: one installer carrying both wizard languages, and a per-user
+      # install that needs no administrator rights. Only the bundler runs here —
+      # the Linux formats come from the other job.
+      - name: Build the NSIS installer
         run: npm run tauri build
 
       # Signing happens after packaging: the certificate is a release concern
@@ -79,32 +79,26 @@ jobs:
         run: |
           ./scripts/sign-windows.ps1 `
             src-tauri/target/release/irixen-code.exe `
-            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/nsis/*-setup.exe
 
       - name: Note unsigned build
         if: env.SIGN_PFX == ''
         shell: bash
         run: echo "::warning::WINDOWS_SIGN_PFX is not set — publishing an unsigned installer"
 
-      # One MSI per WiX language (en-US, zh-CN). The culture goes into the asset
-      # name because the updater picks the wizard matching the app's own UI
-      # language, and because two files named after the product would collide.
-      - name: Collect installers
+      # The bundler names the file after the product and the architecture; the
+      # asset name is pinned here so the updater's `*-setup.exe` match and the
+      # checksum file both refer to something stable.
+      - name: Collect the installer
         shell: bash
         run: |
           set -euo pipefail
           version=$(node -p "require('./package.json').version")
           mkdir -p out
           found=0
-          for src in src-tauri/target/release/bundle/msi/*.msi; do
+          for src in src-tauri/target/release/bundle/nsis/*setup.exe; do
             [ -f "$src" ] || continue
-            base=$(basename "$src")
-            case "$base" in
-              *_en-US.msi) culture=en-US ;;
-              *_zh-CN.msi) culture=zh-CN ;;
-              *) culture=${base%.msi} ;;
-            esac
-            cp "$src" "out/IRIXEN.Code_${version}_x64_${culture}.msi"
+            cp "$src" "out/IRIXEN.Code_${version}_x64-setup.exe"
             found=$((found + 1))
           done
           [ "$found" -gt 0 ] || { echo "no installer produced"; exit 1; }
@@ -164,8 +158,8 @@ jobs:
       - name: Run unit tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --lib
 
-      # tauri.conf.json pins `bundle.targets` to msi (a Windows-only bundler),
-      # so ask for the Linux formats explicitly.
+      # tauri.conf.json pins `bundle.targets` to nsis, so ask for the Linux
+      # formats explicitly.
       - name: Build deb and AppImage
         run: npx tauri build --bundles deb,appimage
 
@@ -229,24 +223,6 @@ jobs:
               esac;;
           esac
 
-      # WiX writes a four-field numeric ProductVersion and refuses the semver
-      # pre-release (`0.4.0-beta.1`), so tauri.conf.json carries a derived one
-      # (`0.4.0.1`). A bump that missed it would ship an installer claiming the
-      # previous release — Windows reads that as a downgrade and refuses.
-      - name: Verify the MSI version follows the package version
-        shell: bash
-        run: |
-          node -e '
-            const conf = require("./src-tauri/tauri.conf.json");
-            const msi = conf.bundle?.windows?.wix?.version ?? "";
-            const core = require("./package.json").version.split("-")[0];
-            if (!msi.startsWith(core + ".")) {
-              console.error(`::error::MSI ProductVersion ${msi || "(unset)"} does not follow package version ${core} — run npm run bump`);
-              process.exit(1);
-            }
-            console.log(`MSI ProductVersion ${msi} follows ${core}`);
-          '
-
       # Release notes are a deliverable, not an afterthought: the Beta 0.1
       # layout (`中文 / English` on every heading and bullet) or the release
       # fails here, before anything is uploaded. See docs/release-notes/Beta0.2.md.
@@ -290,9 +266,10 @@ jobs:
             echo "release $TAG exists — replacing assets"
             gh release upload "$TAG" dist/* --clobber
             # `--clobber` replaces same-named assets but leaves the ones this
-            # build no longer produces (Beta 0.4 shipped an NSIS `.exe` until
-            # 0.4.0-beta.1 moved to MSI). A stale installer left on the page is
-            # worse than a missing one: it is still offered for download.
+            # build no longer produces — a republished tag keeps whatever the
+            # previous build uploaded under a different name. A stale installer
+            # left on the page is worse than a missing one: it is still offered
+            # for download, and the checksums file no longer mentions it.
             gh release view "$TAG" --json assets --jq '.assets[].name' |
               while read -r name; do
                 [ -n "$name" ] || continue

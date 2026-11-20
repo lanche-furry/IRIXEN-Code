@@ -64,32 +64,13 @@ jobs:
         with:
           workspaces: "src-tauri -> target"
 
-      # Every night is a different build carrying the same package version, and
-      # WiX will not install a ProductVersion that is already there. Order the
-      # nightlies by day count instead, so tonight's MSI can go over last
-      # night's without an uninstall: 0.4.0.2515, then 0.4.0.2516.
-      - name: Give the MSI a version that moves every night
-        shell: bash
-        run: |
-          node -e '
-            const fs = require("fs");
-            const p = "src-tauri/tauri.conf.json";
-            const conf = JSON.parse(fs.readFileSync(p, "utf8"));
-            const wix = conf.bundle.windows.wix;
-            const core = wix.version.split(".").slice(0, 3).join(".");
-            const days = Math.floor((Date.now() - Date.UTC(2020, 0, 1)) / 86400000);
-            wix.version = `${core}.${days}`;
-            fs.writeFileSync(p, JSON.stringify(conf, null, 2) + "\n");
-            console.log(`nightly MSI ProductVersion ${wix.version}`);
-          '
-
       # `tauri build` runs beforeBuildCommand (`npm run build`), which is the
       # type check plus the Vite bundle, then links the release exe and packs
-      # the MSI installers from src-tauri/tauri.conf.json.
-      - name: Build MSI installers
+      # the NSIS installer from src-tauri/tauri.conf.json.
+      - name: Build the NSIS installer
         run: npm run tauri build
 
-      - name: Collect installers
+      - name: Collect the installer
         shell: bash
         run: |
           set -euo pipefail
@@ -97,15 +78,9 @@ jobs:
           echo "DATE=$date" >> "$GITHUB_ENV"
           mkdir -p out
           found=0
-          for src in src-tauri/target/release/bundle/msi/*.msi; do
+          for src in src-tauri/target/release/bundle/nsis/*setup.exe; do
             [ -f "$src" ] || continue
-            base=$(basename "$src")
-            case "$base" in
-              *_en-US.msi) culture=en-US ;;
-              *_zh-CN.msi) culture=zh-CN ;;
-              *) culture=${base%.msi} ;;
-            esac
-            cp "$src" "out/IRIXEN.Code_nightly-${date}_x64_${culture}.msi"
+            cp "$src" "out/IRIXEN.Code_nightly-${date}_x64-setup.exe"
             found=$((found + 1))
           done
           [ "$found" -gt 0 ] || { echo "no installer produced"; exit 1; }
@@ -167,7 +142,7 @@ jobs:
       - name: Run unit tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --lib
 
-      # tauri.conf.json pins `bundle.targets` to msi (the Windows product), so
+      # tauri.conf.json pins `bundle.targets` to nsis (the Windows product), so
       # the Linux bundles have to be requested explicitly.
       - name: Build deb and AppImage
         run: npx tauri build --bundles deb,appimage
@@ -235,7 +210,7 @@ jobs:
             echo
             echo "## 安装 / Install"
             echo
-            echo "- **Windows x64**：\`IRIXEN.Code_nightly-${date}_x64_zh-CN.msi\`（或 \`en-US\`），双击安装 / \`IRIXEN.Code_nightly-${date}_x64_zh-CN.msi\` (or \`en-US\`) — run it to install"
+            echo "- **Windows x64**：\`IRIXEN.Code_nightly-${date}_x64-setup.exe\`，双击安装（per-user，不用管理员）/ \`IRIXEN.Code_nightly-${date}_x64-setup.exe\` — run it, installs per user without admin rights"
             echo "- **Linux x64**：\`IRIXEN_Code_nightly-${date}_amd64.AppImage\` 或 \`.deb\` / \`IRIXEN_Code_nightly-${date}_amd64.AppImage\` or \`.deb\`"
             echo
             echo "## 最近提交 / Recent commits"
