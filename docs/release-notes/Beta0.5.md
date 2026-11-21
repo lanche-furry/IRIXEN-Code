@@ -14,6 +14,9 @@ This installer *is* Beta 0.5, and it contains everything below. Three things mat
 - 那张确认卡只留标题和按钮，说明段落去掉：要说的风险在高级页的开关下面已经写过一次 / That confirmation card is its title and its button now — the paragraph is gone, because the risk is already spelled out under the switch in Advanced
 - 关掉开关会撤销这条确认并立即关闭端口，重新打开需要再确认一次 / Switching off revokes the confirmation and closes the port at once; switching back on asks again
 - 配置文件里写着 `full_access: true` 而开关是关的，一律按未确认处理，不会继承 / A config file that says `full_access: true` while the switch is off is treated as unconfirmed and is never inherited
+- 开着总开关但还没启动时，聊天页的引导按钮改为「Web2API · 打开面板」，不再把人带去「设置 → 供应商」 / With the master switch on but the bridge not started, the chat empty-state button now says "Web2API · Open panel" instead of sending you to Settings → Providers
+- 网页抓取的回答末尾如果是 Gemini 的「自动」页脚，会被去掉；只剩下这个页脚时不再当作一条回答 / A trailing "Auto" chip from a scraped web answer is stripped, and a reply that is nothing but that chip is no longer treated as an answer
+- 登录状态不再因为官网页面刷新时的一瞬空档就掉线：要连续两次探测失败才隐藏模型，登录墙判断也只认明确的「请登录 / sign in to continue」类文案 / Login no longer drops on a transient page reload: two consecutive failed probes are needed before models are hidden, and the login-wall check only matches explicit "please sign in" wording
 - **新增托盘图标**：左键还原窗口，右键菜单是「显示主窗口」和「退出」 / **New tray icon**: left click restores the window; the right-click menu holds "Show window" and "Quit"
 - **第一次点关闭时，应用会先问一次**：最小化到托盘，还是直接退出；可以勾「记住我的选择」，之后按选定的来 / **The first close asks once**: minimize to the tray, or quit outright, with a "remember my choice" box — after that the chosen answer is what the X does
 - 「设置 → 高级 → 关闭窗口时」随时可以改，改动立刻生效，不用重启 / Settings → Advanced → Closing the window changes it at any time, and the change applies immediately without a restart

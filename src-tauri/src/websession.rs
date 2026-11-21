@@ -411,7 +411,9 @@ pub const DEFAULT_UI_SCRIPT: &str = r#"(async()=>{
     t=t.replace(/^(?:(?:ChatGPT|Claude|Gemini|Bard|模型|Assistant)\s*(?:说|回答)?\s*[:：]?\s*)+/i,'');
     // A partial anchor used to leave the greeting's "！" glued to the front.
     t=t.replace(/^[\s!！?？,，.。:：;；、…·]+/,'');
-    t=t.replace(/(?:\s*(?:Gemini|Claude|ChatGPT)\s*已回复|\s*已复制|\s*回答已完成|\s*重新生成|\s*升级)+\s*$/g,'');
+    // The bare Gemini footer needs a whitespace before it; "流程已设为自动"
+    // is a real sentence, not chrome.
+    t=t.replace(/(?:\s*(?:Gemini|Claude|ChatGPT)\s*已回复|\s*已复制|\s*回答已完成|\s*重新生成|\s*升级|[ \t\r\n]+自动)+\s*$/g,'');
     return t.trim();
   };
   const NOISE=/^(?:思考|回答已完成|已复制|重新生成|正在思考|生成中|Loading|自动|升级|设置|更多|复制|重做|分享|登录|停止|发送|新对话|Gemini|ChatGPT|Claude|[\s.·…]+)$/;
@@ -651,10 +653,19 @@ fn sanitize_answer(raw: &str) -> String {
             }
         }
     }
-    for tail in [" 升级", " 已复制", " 回答已完成", " 重新生成", " Gemini 已回复"] {
+    // Gemini's footer now ships as a bare "自动" chip after the answer; the
+    // longer "Gemini 自动" form is handled by the marker pass above. Only a
+    // whitespace-separated trailing token is stripped so a legitimate answer
+    // that ends in the word itself is left alone.
+    for tail in [
+        " 升级", " 已复制", " 回答已完成", " 重新生成", " Gemini 已回复", " 自动", "\n自动", "\r\n自动",
+    ] {
         while text.ends_with(tail) {
             text.truncate(text.len() - tail.len());
         }
+    }
+    if text.trim() == "自动" {
+        text.clear();
     }
     text.trim_start_matches(|c: char| {
         c.is_whitespace()
@@ -721,12 +732,13 @@ pub async fn probe_login(source_id: &str) -> Result<SessionInfo, String> {
     probe_login_with(source_id, &endpoint).await
 }
 
-/// Same probe with an explicit endpoint — used by "测试连接", which operates
-/// on the panel's unsaved draft rather than the live config.
-pub async fn probe_login_with(source_id: &str, endpoint: &str) -> Result<SessionInfo, String> {
+/// Evaluate the page without publishing the result. The background watcher
+/// uses this so a single transient miss during a vendor page navigation does
+/// not instantly hide every model from the picker.
+async fn evaluate_login(source_id: &str, endpoint: &str) -> Result<SessionState, String> {
     let endpoint_json = serde_json::to_string(endpoint).map_err(|e| e.to_string())?;
     let body = LOGIN_SCRIPT.replace("__ENDPOINT__", &endpoint_json);
-    let info = match inject_and_wait(source_id, &body, Duration::from_secs(14)).await {
+    Ok(match inject_and_wait(source_id, &body, Duration::from_secs(14)).await {
         Ok(reply) => {
             let parsed: Option<LoginProbe> = serde_json::from_str(&reply.raw).ok();
             SessionState {
@@ -745,10 +757,13 @@ pub async fn probe_login_with(source_id: &str, endpoint: &str) -> Result<Session
             detail: e,
             checked_at: crate::util::now_ms(),
         },
-    };
+    })
+}
+
+fn cache_login(source_id: &str, info: SessionState) -> SessionInfo {
     let mut st = lock(states());
     st.insert(source_id.to_string(), info.clone());
-    Ok(SessionInfo {
+    SessionInfo {
         id: source_id.to_string(),
         label: String::new(),
         open: is_open(source_id),
@@ -756,7 +771,13 @@ pub async fn probe_login_with(source_id: &str, endpoint: &str) -> Result<Session
         account: info.account,
         detail: info.detail,
         checked_at: info.checked_at,
-    })
+    }
+}
+
+/// Same probe with an explicit endpoint — used by "测试连接", which operates
+/// on the panel's unsaved draft rather than the live config.
+pub async fn probe_login_with(source_id: &str, endpoint: &str) -> Result<SessionInfo, String> {
+    Ok(cache_login(source_id, evaluate_login(source_id, endpoint).await?))
 }
 
 const LOGIN_SCRIPT: &str = r#"(async()=>{
@@ -781,7 +802,9 @@ const LOGIN_SCRIPT: &str = r#"(async()=>{
     const c=document.cookie||'';
     const pwd=!!document.querySelector('input[type="password"]');
     const pageText=(document.body&&document.body.innerText||'').slice(0,1500);
-    const wall=/log in|sign in|sign up|登录|登入|ログイン/i.test(pageText);
+    // A logged-in page can still contain a plain "登录" in an account menu or
+    // a footer. Only an explicit call to action means the session is gone.
+    const wall=/请\s*登录|登录以继续|登录后继续|立即登录|登入以繼續|sign in to continue|log in to continue|choose an account|选择帳號|選擇帳號|使用.*账号登录/i.test(pageText.slice(0,800));
     // A bot-guard / challenge page is NOT a usable session. It often still
     // contains a textarea, which used to make the DOM heuristic report
     // "logged in" and publish models that can never answer a chat request.
@@ -820,13 +843,35 @@ pub fn start_watcher() {
     }
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(Duration::from_secs(3)).await;
+        // A vendor page can be mid-navigation when the 15 s tick lands, and a
+        // single "no composer right now" used to drop every model from the
+        // picker until the next tick. Require two consecutive misses before
+        // revoking a previously good session.
+        let mut misses: HashMap<String, u8> = HashMap::new();
         loop {
             let mut any_open = false;
             for id in source_ids() {
                 if is_open(&id) {
                     any_open = true;
-                    let _ = probe_login(&id).await;
+                    let endpoint = lock(endpoints())
+                        .get(&id)
+                        .cloned()
+                        .unwrap_or_default();
+                    let was = logged_in(&id);
+                    if let Ok(info) = evaluate_login(&id, &endpoint).await {
+                        if !info.logged_in && was {
+                            let n = misses.entry(id.clone()).or_insert(0);
+                            *n += 1;
+                            if *n < 2 {
+                                continue;
+                            }
+                        } else {
+                            misses.insert(id.clone(), 0);
+                        }
+                        let _ = cache_login(&id, info);
+                    }
                 } else {
+                    misses.remove(&id);
                     let mut st = lock(states());
                     if let Some(s) = st.get_mut(&id) {
                         s.logged_in = false;
@@ -875,4 +920,24 @@ pub async fn ensure_sessions(cfg: &BridgeConfig, model: Option<&str>) -> Vec<Str
         }
     }
     opened
+}
+
+#[cfg(test)]
+mod answer_tests {
+    use super::sanitize_answer;
+
+    #[test]
+    fn bare_auto_chip_is_not_an_answer() {
+        assert_eq!(sanitize_answer("自动"), "");
+        assert_eq!(sanitize_answer("  自动  "), "");
+    }
+
+    #[test]
+    fn vendor_footer_is_trimmed_but_words_are_kept() {
+        assert_eq!(sanitize_answer("这是回答。 自动"), "这是回答。");
+        assert_eq!(sanitize_answer("这是回答。\n自动"), "这是回答。");
+        assert_eq!(sanitize_answer("这是回答。 Gemini 自动"), "这是回答。");
+        // A real sentence that happens to end with the word must survive.
+        assert_eq!(sanitize_answer("流程已设为自动"), "流程已设为自动");
+    }
 }
