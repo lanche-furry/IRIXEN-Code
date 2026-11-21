@@ -10,7 +10,7 @@ IRIXEN Code has exactly two layers: a **Rust process** (the IRIXEN Agent plus sy
 ┌───────────────────────────────── WebView2 (renderer) ───────────────────────────────┐
 │  src/core/      dom · i18n · api · state (one hand-written event bus)               │
 │  src/ui/        shell · editor · explorer · search · git · skills ·                 │
-│                 stats · chat · review · bridge · settings · theme ·                 │
+│                 stats · chat · review · settings · theme ·                         │
 │                 markdown · toast                                                    │
 │  src/styles/    base.css (design tokens) · app.css (layout)                         │
 └──────────────────────────────────────────┬──────────────────────────────────────────┘
@@ -18,8 +18,6 @@ IRIXEN Code has exactly two layers: a **Rust process** (the IRIXEN Agent plus sy
 ┌──────────────────────────────────────────┴──────────────────────────────────────────┐
 │  commands.rs    <- every #[tauri::command]; thin: forward args, map errors          │
 │  state.rs       AppState { config, engine, skills, mcp }                            │
-│  bridge.rs      Web2API: hand-written HTTP/1.1 + SSE, OpenAI / Anthropic            │
-│  websession.rs  site session: one WebView per source, same-origin fetch + callback  │
 │  agent/                                                                             │
 │    provider.rs  LlmProvider trait + OpenAi/Anthropic/Gemini implementations         │
 │    models.rs    model catalog + thinking inference + 10-minute disk cache           │
@@ -232,7 +230,6 @@ Three install sources: a local directory, a `http(s)` `SKILL.md`, or a Git repos
 | MCP | `mcp_servers` `mcp_upsert` `mcp_delete` `mcp_start` `mcp_stop` `mcp_tools` |
 | Skills | `skills_list` `skills_install` `skills_uninstall` `skills_toggle` `skills_read` |
 | Extensions | `extensions_list` `extensions_install` `extensions_uninstall` `extensions_toggle` `extensions_search` `extensions_theme` `extensions_snippets` |
-| Bridge | `web2api_status` `web2api_start` `web2api_stop` `web2api_log` `web2api_open_session` `web2api_test` |
 | Window | `main_loaded` `window_control` |
 
 There is one event channel, `agent://event`, whose payload is an `AgentEvent` (serde `tag = "kind"`); the front end filters by `session`.
@@ -248,9 +245,9 @@ The shell has one hard rule: **exactly one focal area at a time**. The conversat
     ├ .sidebar   264px (view name + view toolbar + content)
     ├ .resizer   3px
     ├ .stage     minmax(0, 1fr)
-    │  ├ .dock[data-active=chat|review|bridge|extensions]   panels switch via data-active, never destroy-and-rebuild
+    │  ├ .dock[data-active=chat|review|extensions]          panels switch via data-active, never destroy-and-rebuild
     │  └ .editor-area  position:absolute; inset:0; z-index:3   <- covers the conversation
-    └ .rail      40px (Chat / Web2API / Extensions / Files / Terminal / Settings)
+    └ .rail      40px (Chat / Extensions / Files / Terminal / Settings)
 ```
 
 `.activity` and `.rail` are two different axes: the left is "what the sidebar is looking at" (`app.view`), the right is "what the middle is looking at" (`app.surface`). The review panel belongs to the latter, which is why opening review lights up two items on the left at once.
@@ -263,7 +260,7 @@ Three details were settled only after being burned; do not regress them:
 
 There is also a non-CSS source of "fake freezes": **a synchronous Tauri `fn` command runs on the main thread** (the same thread as IPC and window events). `workspace_stats` walks the workspace and reads every file under 1.5 MB just to count lines, `fs_search` runs a full regex scan, `git_*` spawns a subprocess — make any of those synchronous and the window really does stop responding. Commands like these are now uniformly `async` + `spawn_blocking`, and the walker skips `node_modules` / `target` / `dist` (`commands.rs::walker()`). Measured: stats 97 ms, full-repo search 114 ms, longest frame gap 17 ms.
 
-Panel switching uses `.dock[data-active]` + `display:none` instead of unmounting the DOM: scroll position in the conversation, editor tabs and the bridge request log all depend on that to keep their state. Covering with the editor also **does not destroy** the dock, only hides it, so "back to conversation" is instant.
+Panel switching uses `.dock[data-active]` + `display:none` instead of unmounting the DOM: scroll position in the conversation and editor tabs all depend on that to keep their state. Covering with the editor also **does not destroy** the dock, only hides it, so "back to conversation" is instant.
 
 ## 10. Front end
 
@@ -277,59 +274,9 @@ No framework, no virtual DOM:
 - Switching language is **live**: `setLang()` emits `lang:changed` only when the value actually changes, and the shell's `relabel()` repaints the title bar, nav rail, sidebar header, right rail and status bar, then **remounts** dock panels from `app` state (the conversation log is rebuilt by `renderLog()` from `app.chat`). If a stream is in flight, the remount is deferred until `agent:busy=false` so a half-written answer is not torn away
 - **The backend never sends sentences**: for text like "which parts of this extension are usable", Rust returns tokens only (`kind` + `parts: ["themes","snippets"]`) and the front end's dictionary decides the wording — otherwise Chinese sentences leak into the French UI
 
-## 11. The Web2API bridge
+## 11. Extensions (VSC / DSH compatible)
 
-Goal: reverse-proxy a **web AI front end** into what a client sees as a standard API. `OpenAI SDK`, Cursor and friends only need a different `base_url`. The API keys under `Settings → Providers` (DeepSeek and so on) are for the agent, **not** Web2API upstreams; all that remains of `provider` there is a "debug the agent only" switch.
-
-```
-client  ──HTTP/1.1──▶  Bridge (127.0.0.1:8791)
-                        ├─ auth: Bearer / x-api-key
-                        ├─ routes: /v1/models · /v1/chat/completions · /v1/messages · /health
-                        ├─ pick a web source by model prefix (editable route table + default source)
-                        │    claude* → Claude Web · gpt-*/o1/o3 → ChatGPT Web · gemini* → Gemini Web
-                        ├─ per source: session credentials + endpoint/auth header/body template/text path
-                        └─ streaming: its own SSE + chunked encoder
-```
-
-**No web framework.** `bridge.rs` writes HTTP/1.1 by hand on a `tokio::net::TcpListener`: read headers, read the body by `Content-Length`, write the response, write SSE frames with `Transfer-Encoding: chunked`.
-
-### Configurable web sources
-
-`BridgeConfig` holds `sources: Vec<WebSource>` + `routes: Vec<ModelRoute>` + `default_source`. Legacy fields (`claude_web`, `claude_session_key`, …) are folded into presets by `migrate()` inside `AppConfig::load()`, and the default upstream moves from `provider` to `web`.
-
-Each source has a `mode`: `browser` (the default) sends requests from a persistent WebView created by `websession.rs`, using a same-origin `fetch` in the website's own page context — cookies, UA, origin and CSRF all come from the browser, so no credentials are copied. `http` is the old `reqwest` template mode and needs a hand-filled `session_key`. Results come back by polling a global on the page through `eval_with_callback` rather than a local callback endpoint, so the site's CSP `connect-src` and mixed-content rules never apply. The window is created on its own thread (on Windows, creating a window inside a synchronous command deadlocks).
-
-`web2api_test` sends one minimal request to each source and returns the real HTTP status, which the panel's "Test connection" button shows directly; when a legacy config lacks `home_url`, `migrate()` fills it from the built-in preset or the endpoint's origin.
-
-| Field | Purpose |
-| --- | --- |
-| `mode` / `home_url` | Browser session / direct template; the site's login page URL |
-| `session_key` / `auth_header` | Cookie, bearer token or a complete cookie header; `{session}` placeholder (in browser mode cookie / authorization come from the page and these two are ignored) |
-| `endpoint` / `body_template` | `{org}` `{uuid}` `{model}` `{session}` `{prompt}` `{prompt_json}` `{req}` placeholders |
-| `text_path` / `text_guard` | Where to read text out of a JSON event; `auto` takes the longest string; a guard looks like `message.author.role=assistant` |
-| `cumulative` | ChatGPT / Gemini resend the full text every frame, so only the new suffix is emitted; Claude streams deltas and is passed straight through |
-| `org_endpoint` / `org_path` | Fetch `/api/organizations` first when Claude has no organisation id |
-
-The response parser assumes nothing about SSE: it strips `data:` / `)]}'` prefixes and chunk-length lines per line, and hands anything that parses as JSON to `text_path`. Request logs carry the matched `web:<source id>`. When a private endpoint changes, edit the template under "Advanced" in the panel — no rebuild needed.
-
-### Protocol exits
-
-Both request shapes share one normalised data structure (`messages` array + `system` + `stream` + `max_tokens`), so mixing them — "OpenAI in, Anthropic out" — works by construction.
-
-- **OpenAI**: `choices[].delta.content`, with reasoning on the non-standard `reasoning_content`; the stream ends with `data: [DONE]`
-- **Anthropic**: `message_start` → `content_block_start` → several `content_block_delta` → `content_block_stop` → `message_delta` → `message_stop`, one line each for the event name and its data
-- **Model echo**: the response's `model` is the name the client asked for; `/v1/models` additionally lists aliases such as `gpt-4o`, `claude-sonnet-4-5`, `gemini-2.5-pro`, which is the cure for clients that hard-code model names
-- **Plain text only**: the web upstream receives the multi-turn conversation flattened into one prompt — tools, images and attachments are not supported
-
-### Three implementation traps (all commented in the code)
-
-1. **Lock re-entrancy deadlock**: `start()` called `status()` while holding the `state` `Mutex`, and `status()` wants that same **non-reentrant** lock → the whole `invoke` never returns. The fix is to scope the guard to a block and query the status after leaving it.
-2. **Empty body**: reasoning models (such as `deepseek-flash`) can spend the entire budget on thinking under a small `max_tokens`, so the Anthropic side sees `content_block_start` immediately followed by `content_block_stop` with zero visible text. All four response paths (OpenAI / Anthropic × streaming / non-streaming) now fall back to emitting the reasoning text as the body when there is no visible text.
-3. **UTF-8 slicing**: `&body[..600]` can cut through a code point in a Chinese error body and panic, and release builds use `panic = "abort"` → the process is killed. All such spots use `util::cap_chars(body, 600)`.
-
-## 12. Extensions (VSC / DSH compatible)
-
-Extensions come in two layers: **declarative contribution points** (12.1–12.5 in this section) and the **real Node extension host** (§13). The deciding factor is simply whether `package.json` has a `main`:
+Extensions come in two layers: **declarative contribution points** (11.1–11.5 in this section) and the **real Node extension host** (§12). The deciding factor is simply whether `package.json` has a `main`:
 
 ```
 .vsix (ZIP)
@@ -338,13 +285,13 @@ Extensions come in two layers: **declarative contribution points** (12.1–12.5 
        ├─ contributes.snippets    → CodeMirror autocompletion source            ✅ really applied
        ├─ contributes.languages   → extension → language id (highlighting/snippets) ✅ really applied
        ├─ contributes.commands    → panel/command palette; executable with main  ✅ really applied
-       ├─ main: "./extension.js"  → the Node extension host (§13)                ✅ really runs
+       ├─ main: "./extension.js"  → the Node extension host (§12)                ✅ really runs
        ├─ completion/hover/format providers → registerXxxProvider (4)             ✅ really applied
        ├─ TreeView / Webview      → registerTreeDataProvider and friends          ✅ really applied
        └─ diagnostics/goto/symbols/actions → registerXxxProvider (the rest)       ⏳ registers, nothing happens
 ```
 
-### 12.1 Four install sources, one entry point
+### 11.1 Four install sources, one entry point
 
 `extensions_install(source)` dispatches on the shape of the string, so the front end needs just one input box:
 
@@ -357,7 +304,7 @@ Extensions come in two layers: **declarative contribution points** (12.1–12.5 
 
 Open VSX is the open-source mirror of the VS Code Marketplace and its API is tiny: `GET https://open-vsx.org/api/{publisher}/{name}/latest` returns `files.download`, and that `.vsix` URL feeds the same unpacking path. No Marketplace private protocol is involved.
 
-### 12.2 A built-in ZIP reader instead of another dependency
+### 11.2 A built-in ZIP reader instead of another dependency
 
 A `.vsix` is a ZIP. `extensions::zip` does two things only: walk the EOCD to find the central directory, and extract entries by method (0 = store, 8 = deflate, via `flate2` which is already in the dependency tree). That means:
 
@@ -367,7 +314,7 @@ A `.vsix` is a ZIP. `extensions::zip` does two things only: walk the EOCD to fin
   - `safe_rel()` rejects absolute paths, drive letters and `..` segments (zip-slip)
   - `MAX_FILES = 20_000`, `MAX_TOTAL_BYTES = 512 MB`
 
-### 12.3 Why GitHub repositories are not `git clone`d
+### 11.3 Why GitHub repositories are not `git clone`d
 
 `install_git` originally *was* `git clone --depth 1`, and it failed on this machine:
 
@@ -387,7 +334,7 @@ GET https://codeload.github.com/{owner}/{repo}/zip/HEAD
 
 Only non-GitHub repositories fall back to `git clone`, with `-c http.sslBackend=schannel` added so git uses the system certificate store too.
 
-### 12.4 How contribution points reach the UI
+### 11.4 How contribution points reach the UI
 
 **Themes**: `theme_colors(id, label)` maps VS Code colour keys as "one variable, several candidate keys" and writes the first hit:
 
@@ -406,7 +353,7 @@ The front end's `applyExtensionTheme(vars)` picks `data-theme` (dark/light) from
 
 **DSH packages**: many "skill pack" repositories are really just a `SKILL.md`. On install, `find_skills()` looks for every `SKILL.md` within 4 levels (skipping `node_modules/.git/target/dist`) and feeds each through `registry.install_from_text()` into the skill system. Installing an extension and installing a skill are therefore one action — no second trip through the skills panel.
 
-### 12.5 Storage and state
+### 11.5 Storage and state
 
 ```
 <config>/extensions/<publisher.name>-<version>/
@@ -417,11 +364,11 @@ The front end's `applyExtensionTheme(vars)` picks `data-theme` (dark/light) from
 
 `list()` is a directory scan plus sidecar reads — no database. Enabling and disabling flips one boolean in the sidecar, which is what the theme dropdown, snippet lookup and `extensions:count` event all filter on. Installing emits `extensions:count` once, and the editor clears its snippet cache in response (`resetSnippetCache()`) — otherwise new snippets only appear after a restart.
 
-## 13. The Node extension host
+## 12. The Node extension host
 
 `src-tauri/src/exthost/` is what makes `extension.js` actually run. It has exactly one design goal: **a crashing extension must not take the IDE down, and a stuck extension must not make the IDE stuck**. The second half is harder, because APIs like `showInformationMessage` are blocking by nature.
 
-### 13.1 One `node` process per extension
+### 12.1 One `node` process per extension
 
 ```
 ExtHost (Rust, singleton)
@@ -434,7 +381,7 @@ ExtHost (Rust, singleton)
 
 There are three practical reasons not to share a process: extensions' `require` caches stay invisible to each other (VS Code isolates them too); a `while(true)` burns one core of its own; and `process.exit()` kills only itself. The price is memory (~40 MB per Node), so hosts **start on demand** — installed but not running costs nothing.
 
-### 13.2 Frame format: NDJSON, stdout *is* the protocol
+### 12.2 Frame format: NDJSON, stdout *is* the protocol
 
 ```jsonc
 { "t":"req",  "id":7, "method":"window.message", "params":{…} }  // host → core, wants a reply
@@ -454,7 +401,7 @@ console.log = console.info = … = toStderr;   // even util.inspect is preserved
 
 Otherwise a single `console.log` shreds the next JSON frame, `JSON.parse` fails, and the whole channel goes silently dead — the easiest bug to create and the hardest to find, so it is blocked at the source rather than tolerated in the parser.
 
-### 13.3 The `vscode` module: load once, two syntaxes
+### 12.3 The `vscode` module: load once, two syntaxes
 
 Extensions come as both CommonJS and ESM, and both must receive the **same** singleton:
 
@@ -479,7 +426,7 @@ module.exports.window = api.window;
 
 `node_modules/vscode` lives under `<config>/` rather than inside each extension because Node's resolution walks up from `<config>/extensions/<id>/`, so one shim serves every extension. **The named exports cannot be omitted**: `cjs-module-lexer` is static analysis and cannot see what is inside `module.exports = api`; only `module.exports.commands = …` lets `import { commands }` pass the linking check.
 
-### 13.4 Two sets of ids — do not mix them
+### 12.4 Two sets of ids — do not mix them
 
 | Table | Key | Who waits | Timeout |
 | --- | --- | --- | --- |
@@ -500,7 +447,7 @@ The renderer needs an id unique across extensions (`ui_seq`), while the host onl
 
 When a host process exits, `drop_waiters()` clears the entries under its name: a prompt nobody is waiting for should not stay in the table.
 
-### 13.5 Blocking UI: waiter tables plus renderer-side answers
+### 12.5 Blocking UI: waiter tables plus renderer-side answers
 
 `showInformationMessage` / `showQuickPick` / `showInputBox` return promises in VS Code, and the user decides when they resolve. The implementation:
 
@@ -521,7 +468,7 @@ Two semantic details:
 - **`quickPick` returns an index, not a label.** The renderer only understands `label/description/detail`, but the extension expects back the object it put in (`{ label, value: 42 }`). So the UI returns `number | number[]` and the host maps it with `list[sel]`; likewise `canPickMany` returns an array.
 - **`messageBox` gets an added "Close" when it has no buttons**, returning `undefined` — which matches VS Code's "the dialog was dismissed".
 
-### 13.6 The main thread must never wait
+### 12.6 The main thread must never wait
 
 Tauri commands run on the main thread by default. `exthost_run` waits for an extension's return value (up to 60 s) and `exthost_start` waits for the process spawn plus the `ready` frame; on the main thread that freezes the entire window. So anything that can block is uniformly:
 
@@ -529,7 +476,7 @@ Tauri commands run on the main thread by default. `exthost_run` waits for an ext
 tauri::async_runtime::spawn_blocking(move || host.reverse(&id, "executeCommand", args))
 ```
 
-### 13.7 Document mirroring: editor state is the only truth
+### 12.7 Document mirroring: editor state is the only truth
 
 An extension's `activeTextEditor` is not maintained by the extension; it is mirrored from the IDE:
 
@@ -545,20 +492,20 @@ editor open/change/save/close
 
 Extension edits travel the other way: `editor.edit(builder)` → `rreq "editor.edit"` → `exthost://edit` → the renderer turns `{start,end,text}` into offsets and dispatches one `view.dispatch` bottom-up (bottom-up so earlier edits do not shift the offsets of later ones).
 
-### 13.8 Bootstrapping the Node runtime
+### 12.8 Bootstrapping the Node runtime
 
 Do not assume the user has Node (half of this IDE's target users do not). `exthost_install_node`:
 
 ```
 GET https://nodejs.org/dist/index.json   → take the first version with a non-empty lts and a win-x64 build
 GET …/node-v{ver}-win-x64.zip            → unpack in memory
-  → the ZIP reader from §12.2, keeping only node.exe (+ LICENSE)
+  → the ZIP reader from §11.2, keeping only node.exe (+ LICENSE)
   → <config>/runtime/node/node.exe
 ```
 
-Reusing the reader from §12.2 is deliberate: it already sits on `flate2`, so "download Node" does not justify another decompression crate. Detection order is config path → bundled runtime → `PATH` → `%ProgramFiles%\nodejs\node.exe`, with `node -v` for the version; if none is found the app shows a banner instead of letting host startup fail.
+Reusing the reader from §11.2 is deliberate: it already sits on `flate2`, so "download Node" does not justify another decompression crate. Detection order is config path → bundled runtime → `PATH` → `%ProgramFiles%\nodejs\node.exe`, with `node -v` for the version; if none is found the app shows a banner instead of letting host startup fail.
 
-### 13.9 Lifecycle
+### 12.9 Lifecycle
 
 An extension with `extensions.autostart` true gets its host started `autostart_delay_ms` after launch (default 1500 ms) — after first paint, so it does not compete with startup. Closing the window goes through:
 
@@ -570,7 +517,7 @@ An extension with `extensions.autostart` true gets its host started `autostart_d
 
 Without that step `node.exe` lingers in Task Manager — fatal during development, where a few hot restarts pile up a screen of orphan processes that all hold log files under `<config>/runtime`.
 
-### 13.10 The implemented API surface
+### 12.10 The implemented API surface
 
 | Group | Implemented |
 | --- | --- |
@@ -590,11 +537,11 @@ Without that step `node.exe` lingers in Task Manager — fatal during developmen
 
 Unimplemented APIs **exist but throw `not implemented`** instead of being `undefined` — a feature probe like `if (vscode.window.createTreeView)` would silently downgrade an extension on `undefined`, whereas a throwing function at least puts a name in the log.
 
-## 14. The built-in marketplace
+## 13. The built-in marketplace
 
 The panel has two tabs: **Installed** and **Store**. The store talks to Open VSX directly, with no browser.
 
-### 14.1 One API, three requests
+### 13.1 One API, three requests
 
 ```
 GET /-/search?query=&category=&sortBy=&size=24&offset=N
@@ -604,7 +551,7 @@ GET /api/{publisher}/{name}/{ver}    → files.download at install time
 
 `sortBy` accepts `downloadCount` (default) / `averageRating` / `timestamp`, plus `relevance` when there is a query. Categories use Open VSX's own strings (`Programming Languages`, `Themes`, …) with no local mapping table — when they rename something we follow, which is cheaper than maintaining a translation that no longer matches.
 
-### 14.2 READMEs need washing
+### 13.2 READMEs need washing
 
 A detail page's README is raw Markdown full of badges, relative-path images and HTML such as `<picture>`/`<div align>`. Handing that to the project's `renderMarkdown` produces dozens of broken icons and piles of blank lines:
 
@@ -616,15 +563,15 @@ md.replace(/<img[^>]*>/gi, '')        // badges
 
 Keeping the alt text is what preserves information like "1M+ downloads". The README is truncated at 60 kB on the Rust side — the longest ones (`ms-python.python`) exceed 200 kB, and pushing a whole one through IPC blanks the detail page for half a second.
 
-### 14.3 Installed means usable
+### 13.3 Installed means usable
 
 The store's "Install" button and the panel's input box go through the **same** `extensions_install`. The only difference: the store knows the exact version, so it calls `/api/{pub}/{name}/{ver}` directly and avoids `latest` disagreeing with the version the user just read.
 
 The list refreshes after installing; if the extension has a `main`, its card grows a host row with "Start host", and its commands appear in the command palette (`Ctrl+Shift+P`). Nowhere in that chain is there a "restart to take effect" step.
 
-## 15. Panel interaction and error theming: two UI rules
+## 14. Panel interaction and error theming: two UI rules
 
-### 15.1 The `hidden` attribute is not a guarantee
+### 14.1 The `hidden` attribute is not a guarantee
 
 The extensions panel once ate an entire page of clicks: `.store` is `position: absolute; inset: 0; display: flex`, and `.ext-body` / `.ext-detail` are `display: flex` too. `hidden` only declares `display: none` in the **UA stylesheet**, and any `display` in an author stylesheet wins at higher priority:
 
@@ -641,11 +588,11 @@ The conclusion is one global rule in `base.css` instead of an `.xxx[hidden]` var
 [hidden] { display: none !important; }
 ```
 
-Every use of `hidden` in the project (`dock` / `editor-area` / the bridge's provider row / the extensions panel) is a genuine hide with no "hidden but shown by CSS" exception, so the rule has no side effects. **Any new full-screen layer with `display` must toggle visibility through `hidden`** — do not write `style.display` again.
+Every use of `hidden` in the project (`dock` / `editor-area` / the extensions panel) is a genuine hide with no "hidden but shown by CSS" exception, so the rule has no side effects. **Any new full-screen layer with `display` must toggle visibility through `hidden`** — do not write `style.display` again.
 
 The same round also set the `.toasts` container to `pointer-events: none` (each toast restores `auto`): a notification stack sitting over a button in the bottom-right should never make the whole UI feel dead.
 
-### 15.2 Error colours must come from semantic variables
+### 14.2 Error colours must come from semantic variables
 
 Error surfaces used to carry scattered hard-coded rgba values: chat bubbles used `rgba(248,113,113,…)` (the dark-theme red), extension dialog badges used `rgba(220,38,38,…)` (the light-theme red). After a theme switch half the error components stayed in the other palette, and a custom theme overriding `--err` could not reach them at all.
 
@@ -670,7 +617,7 @@ background: linear-gradient(var(--err-soft), var(--err-soft)), var(--bg-3);
 
 In-panel errors (failed search, failed list load, failed log read) no longer use a toast that flashes past; they stay where the user is looking, as an inline error block with a "Retry" button, and every title goes through i18n with keys in all 8 languages.
 
-## 16. End-to-end test: installing a real Open VSX extension
+## 15. End-to-end test: installing a real Open VSX extension
 
 Every earlier verification used a hand-built smoke extension. The final round switched to `esbenp.prettier-vscode` 12.4.0 (a 2 MB VSIX, `"type": "module"`, ESM bundles, 35 configuration entries) and walked from store search all the way to command execution, which surfaced five bugs that only exist in the real ecosystem.
 
@@ -686,4 +633,4 @@ Every earlier verification used a hand-built smoke extension. The final round sw
 
 **Measured result**: search → category (Themes) → sort (rating) → detail (15 kB README, 40 versions, no broken images, no horizontal overflow, the `JS` marker decided from `main` in `files.manifest`) → install → card with a host row → start → `activate()` succeeds, the output channel prints name and version → 3 commands `live: true` → clicking `prettier.openOutput` returns `✓`. No IDE restart anywhere in the chain.
 
-Still explicitly out of scope: real language-service providers (completion/diagnostics/definition), Webview, TreeView, Task/Terminal. The table in §13.10 stands — "can register without crashing" and "actually completes your code" are two different things.
+Still explicitly out of scope: real language-service providers (completion/diagnostics/definition), Webview, TreeView, Task/Terminal. The table in §12.10 stands — "can register without crashing" and "actually completes your code" are two different things.

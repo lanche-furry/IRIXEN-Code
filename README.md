@@ -142,7 +142,7 @@ src/                    前端（TypeScript，零框架）
   core/                 dom / i18n（8 语言）/ api / state
   core/locales/         zh-TW / es-ES / fr-FR（其余内联在 i18n.ts）
   ui/                   shell（布局与快捷栏）· chat · editor · explorer · search
-                        git · skills · stats · review · bridge · extensions · settings
+                              git · skills · stats · review · extensions · settings
   styles/               base.css + app.css（全部设计令牌）
 src-tauri/              Rust 后端
   src/agent/            provider（三协议）/ models / context / tools / meter / types

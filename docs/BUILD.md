@@ -281,6 +281,3 @@ PATH 里没有 MinGW `bin`。用 `npm run check` / `npm run app:build` 启动即
 
 **`npm run app:dev` 端口被占用**
 `vite.config.ts` 里 `strictPort: true`，5173 被占会直接失败而不是换端口。先释放 5173。
-
-**Web2API 起不来（默认 8791 被占）**
-端口在 `Web2API` 面板里可改，改完点保存会自动重启监听；启动失败的原因会显示在面板状态行上（`last_error`），不是静默退出。注意它只绑 `127.0.0.1`，不需要也不应该对局域网暴露。

@@ -281,6 +281,3 @@ The window is created with `visible: true`, so a blank window usually means the 
 
 **`npm run app:dev` says the port is taken**
 `vite.config.ts` sets `strictPort: true`, so a busy 5173 fails instead of picking another port. Free 5173 first.
-
-**Web2API will not start (default 8791 taken)**
-The port is editable in the `Web2API` panel and saving restarts the listener automatically; the reason a start failed is shown on the panel's status line (`last_error`) rather than exiting silently. Note that it only binds `127.0.0.1` — it does not need to, and should not, be exposed to the LAN.

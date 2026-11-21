@@ -142,7 +142,7 @@ src/                    Frontend (TypeScript, zero framework)
   core/                dom / i18n (8 languages) / api / state
   core/locales/        zh-TW / es-ES / fr-FR (the rest inline in i18n.ts)
   ui/                  shell (layout + quick bar) · chat · editor · explorer · search
-                       git · skills · stats · review · bridge · extensions · settings
+                             git · skills · stats · review · extensions · settings
   styles/              base.css + app.css (all design tokens)
 src-tauri/             Rust backend
   src/agent/           provider (three protocols) / models / context / tools / meter / types

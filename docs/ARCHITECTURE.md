@@ -10,7 +10,7 @@ IRIXEN Code 只有两层：**Rust 进程**（IRIXEN Agent + 系统能力）和 *
 ┌─────────────────────────── WebView2 (renderer) ───────────────────────────┐
 │  src/core/      dom · i18n · api · state（一个手写事件总线）               │
 │  src/ui/        shell · editor · explorer · search · git · skills ·        │
-│                 stats · chat · review · bridge · settings · theme ·        │
+│                 stats · chat · review · settings · theme ·                │
 │                 markdown · toast                                          │
 │  src/styles/    base.css（设计令牌）· app.css（布局）                      │
 └───────────────────────────────────┬───────────────────────────────────────┘
@@ -19,8 +19,6 @@ IRIXEN Code 只有两层：**Rust 进程**（IRIXEN Agent + 系统能力）和 *
 │                              src-tauri (Rust)                             │
 │  commands.rs   ← 全部 #[tauri::command]，薄封装，只做参数转发与错误转换     │
 │  state.rs      AppState { config, engine, skills, mcp }                    │
-│  bridge.rs     Web2API：手写 HTTP/1.1 + SSE，OpenAI / Anthropic 出口       │
-│  websession.rs 官网浏览器会话：每源一个 WebView，页面内同源 fetch + 回调   │
 │  agent/                                                                   │
 │    provider.rs  LlmProvider trait + OpenAi/Anthropic/Gemini 三个实现       │
 │    models.rs    模型目录 + 思考能力推断 + 10 分钟磁盘缓存                   │
@@ -233,7 +231,6 @@ when: 省token, 太长, 精简, 冗长
 | MCP | `mcp_servers` `mcp_upsert` `mcp_delete` `mcp_start` `mcp_stop` `mcp_tools` |
 | 技能 | `skills_list` `skills_install` `skills_uninstall` `skills_toggle` `skills_read` |
 | 扩展 | `extensions_list` `extensions_install` `extensions_uninstall` `extensions_toggle` `extensions_search` `extensions_theme` `extensions_snippets` |
-| 桥接 | `web2api_status` `web2api_start` `web2api_stop` `web2api_log` `web2api_open_session` `web2api_test` |
 | 窗口 | `main_loaded` `window_control` |
 
 事件只有一个通道 `agent://event`，payload 是 `AgentEvent`（serde `tag = "kind"`），前端按 `session` 过滤。
@@ -249,9 +246,9 @@ when: 省token, 太长, 精简, 冗长
     ├ .sidebar   264px（视图名 + 视图工具栏 + 内容）
     ├ .resizer   3px
     ├ .stage     minmax(0, 1fr)
-    │  ├ .dock[data-active=chat|review|bridge|extensions]   面板切换靠 data-active，非销毁重建
+    │  ├ .dock[data-active=chat|review|extensions]          面板切换靠 data-active，非销毁重建
     │  └ .editor-area  position:absolute; inset:0; z-index:3   ← 覆盖对话区
-    └ .rail      40px（对话 / Web2API / 扩展 / 文件 / 终端 / 设置）
+    └ .rail      40px（对话 / 扩展 / 文件 / 终端 / 设置）
 ```
 
 `.activity` 与 `.rail` 是两条不同的轴：左边是「侧栏在看什么」（`app.view`），右边是「中间在看什么」（`app.surface`）。审查面板属于后者，所以它放在 `.activity` 末尾但高亮的是 surface——这解释了为什么看审查时左边会同时有两个高亮项。
@@ -279,60 +276,9 @@ when: 省token, 太长, 精简, 冗长
 - 切语言是**实时的**：`setLang()` 只在值真的变化时 `emit('lang:changed')`，外壳的 `relabel()` 重画标题栏 / 导航列 / 侧栏头 / 右侧栏 / 状态栏，并从 `app` 状态**重新挂载** dock 面板（对话记录由 `renderLog()` 从 `app.chat` 重建）。如果切换时正在流式输出，面板重挂载会推迟到 `agent:busy=false`，避免把半截回答撕掉
 - **后端不下发句子**：像"这个扩展的哪部分可用"这种说明，Rust 只给 token（`kind` + `parts: ["themes","snippets"]`），措辞由前端字典决定，否则中文句子会漏进法语界面
 
-## 11. Web2API 桥接
+## 11. 扩展（VSC / DSH 兼容）
 
-目标：把**网页端 AI** 反向代理成客户端眼中的标准 API。`OpenAI SDK`、Cursor 等只改 `base_url` 即可接入。应用里 `设置 → 供应商` 的 API key（DeepSeek 等）是给 agent 用的，**不是** Web2API 的上游；`provider` 只剩一个「仅调试 agent」的开关。
-
-```
-客户端  ──HTTP/1.1──▶  Bridge (127.0.0.1:8791)
-                         ├─ 鉴权：Bearer / x-api-key
-                         ├─ 路由：/v1/models · /v1/chat/completions · /v1/messages · /health
-                         ├─ 按 model 前缀选网页源（可编辑路由表 + 默认源）
-                         │    claude* → Claude Web · gpt-*/o1/o3 → ChatGPT Web · gemini* → Gemini Web
-                         ├─ 每个源：会话凭证 + 端点/鉴权头/请求体模板/文本路径
-                         └─ 流式：自己的 SSE + chunked 编码器
-```
-
-**没有引 web 框架。** `bridge.rs` 直接在 `tokio::net::TcpListener` 上手写 HTTP/1.1：读头、按 `Content-Length` 读体、写响应、写 `Transfer-Encoding: chunked` 的 SSE 帧。
-
-### 可配置的网页源
-
-`BridgeConfig` 里 `sources: Vec<WebSource>` + `routes: Vec<ModelRoute>` + `default_source`。老配置的 `claude_web` 与 `claude_session_key` 等在 `AppConfig::load()` 里由 `migrate()` 折进预设，默认上游从 `provider` 切到 `web`。
-
-每个源有 `mode`：`browser`（默认）在 `websession.rs` 创建的常驻 WebView 里，用官网页面上下文的同源 `fetch` 发请求——cookie、UA、origin、CSRF 都由浏览器提供，不需要复制凭证；`http` 是旧的 `reqwest` 直连模板，需要手填 `session_key`。结果通过 `eval_with_callback` 轮询页面上的全局变量回传，不走本地回调端点，因此不受官网 CSP `connect-src` 与 mixed-content 限制。窗口在独立线程创建（Windows 上同步命令里建窗口会死锁）。
-
-`web2api_test` 对每个源发一条最小请求并返回真实 HTTP 状态，面板「测试连接」直接展示；旧配置缺 `home_url` 时由 `migrate()` 从内置预设或 endpoint 的 origin 补齐。
-
-| 字段 | 作用 |
-| --- | --- |
-| `mode` / `home_url` | 浏览器会话 / 直连模板；官网登录页地址 |
-| `session_key` / `auth_header` | cookie、bearer token 或完整 cookie 头；`{session}` 占位符（浏览器模式下 cookie / authorization 由页面提供，模板里这两项会被忽略） |
-| `endpoint` / `body_template` | `{org}` `{uuid}` `{model}` `{session}` `{prompt}` `{prompt_json}` `{req}` 占位符 |
-| `text_path` / `text_guard` | 从 JSON 事件里取文本；`auto` 取最长字符串；guard 形如 `message.author.role=assistant` |
-| `cumulative` | ChatGPT / Gemini 每帧重发全文，只推新增后缀；Claude 是增量，直接透传 |
-| `org_endpoint` / `org_path` | Claude 未填组织 ID 时先取 `/api/organizations` |
-
-响应解析器不假设 SSE：逐行去掉 `data:` / `)]}'` 前缀与分块长度行，凡能解析成 JSON 的都交给 `text_path`。请求日志会带上命中的 `web:<source id>`。私有接口变动时改面板「高级」里的模板即可，不必重新构建。
-
-### 协议出口
-
-两种请求形态共享同一套归一化数据结构（`messages` 数组 + `system` + `stream` + `max_tokens`），所以「OpenAI 进、Anthropic 出」这种混搭天然成立。
-
-- **OpenAI**：`choices[].delta.content`，推理走非标准的 `reasoning_content`；流以 `data: [DONE]` 收尾
-- **Anthropic**：`message_start` → `content_block_start` → 若干 `content_block_delta` → `content_block_stop` → `message_delta` → `message_stop`，事件名与 data 各一行
-- **模型回显**：响应的 `model` 是客户端请求的名字；`/v1/models` 额外列出 `gpt-4o`、`claude-sonnet-4-5`、`gemini-2.5-pro` 等别名，专治客户端写死模型名
-- **纯文本**：网页上游把多轮消息拼成一段 prompt，tools / 图片 / 附件不支持
-
-### 三个实现坑（都已在代码里注释）
-
-1. **锁重入死锁**：`start()` 持着 `state` 的 `Mutex` 调 `status()`，而 `status()` 也要这把**非可重入**锁 → 整个 `invoke` 永不返回。修法是把 guard 缩进一个块，出了块再查状态。
-2. **空正文**：推理模型（如 `deepseek-flash`）在小 `max_tokens` 下会把预算全花在思考上，Anthropic 侧于是出现 `content_block_start` 紧接 `content_block_stop` 的零正文。四条响应路径（OpenAI / Anthropic × 流式 / 非流式）都加了兜底：没有可见正文时，把思考文本当正文发出去。
-3. **UTF-8 切片**：`&body[..600]` 在中文错误体上会切在码点中间直接 panic，而 release 是 `panic = "abort"` → 进程被杀。统一改用 `util::cap_chars(body, 600)`。
-
-
-## 12. 扩展（VSC / DSH 兼容）
-
-扩展分两层：**声明式贡献点**（本节的 12.1–12.5）与**真正的 Node 扩展宿主**（§13）。判定只看 `package.json` 有没有 `main`：
+扩展分两层：**声明式贡献点**（本节的 11.1–11.5）与**真正的 Node 扩展宿主**（§12）。判定只看 `package.json` 有没有 `main`：
 
 ```
 .vsix (ZIP)
@@ -341,13 +287,13 @@ when: 省token, 太长, 精简, 冗长
        ├─ contributes.snippets    → CodeMirror autocompletion 源     ✅ 真实生效
        ├─ contributes.languages   → 扩展名 → 语言 id（高亮/片段域）   ✅ 真实生效
        ├─ contributes.commands    → 面板/命令面板；有 main 时可执行   ✅ 真实生效
-       ├─ main: "./extension.js"  → Node 扩展宿主（§13）             ✅ 真实运行
+       ├─ main: "./extension.js"  → Node 扩展宿主（§12）             ✅ 真实运行
        ├─ 补全/悬停/格式化 provider → registerXxxProvider（4 个）      ✅ 真实生效
        ├─ TreeView / Webview       → registerTreeDataProvider 等      ✅ 真实生效
        └─ 诊断/跳转/符号/代码操作   → registerXxxProvider（其余）      ⏳ 注册了但不生效
 ```
 
-### 12.1 四种安装来源，一个入口
+### 11.1 四种安装来源，一个入口
 
 `extensions_install(source)` 按字符串形状分派，前端只给一个输入框：
 
@@ -360,7 +306,7 @@ when: 省token, 太长, 精简, 冗长
 
 Open VSX 是 VS Code Marketplace 的开源镜像，接口很小：`GET https://open-vsx.org/api/{publisher}/{name}/latest` 返回 `files.download`，拿到 `.vsix` 直链再走同一条解包路径。不引 Marketplace 的私有协议。
 
-### 12.2 自带 ZIP 读取器，而不是拉一个解压依赖
+### 11.2 自带 ZIP 读取器，而不是拉一个解压依赖
 
 `.vsix` 就是 ZIP。`extensions::zip` 只做两件事：走 EOCD 找回中央目录、按 method 解出条目（0 = store，8 = deflate，走已经在依赖树里的 `flate2`）。这样：
 
@@ -370,7 +316,7 @@ Open VSX 是 VS Code Marketplace 的开源镜像，接口很小：`GET https://o
   - `safe_rel()` 拒绝绝对路径、盘符、`..` 段（防 zip-slip）
   - `MAX_FILES = 20_000`、`MAX_TOTAL_BYTES = 512 MB`
 
-### 12.3 为什么 GitHub 仓库不 `git clone`
+### 11.3 为什么 GitHub 仓库不 `git clone`
 
 最初 `install_git` 就是 `git clone --depth 1`，然后在这台机器上失败了：
 
@@ -390,7 +336,7 @@ GET https://codeload.github.com/{owner}/{repo}/zip/HEAD
 
 只有非 GitHub 的仓库才回退到 `git clone`，并补 `-c http.sslBackend=schannel` 让 git 也走系统证书。
 
-### 12.4 贡献点怎么落到界面上
+### 11.4 贡献点怎么落到界面上
 
 **主题**：`theme_colors(id, label)` 把 VS Code 的颜色键按「一个变量多个候选键」映射，命中第一个就写：
 
@@ -409,7 +355,7 @@ set("--accent", &["focusBorder", "button.background", "activityBarBadge.backgrou
 
 **DSH 包**：很多「技能包」仓库其实就是一个 `SKILL.md`。安装时 `find_skills()` 在 ≤4 层内找所有 `SKILL.md`（跳过 `node_modules/.git/target/dist`），逐个 `registry.install_from_text()` 进技能系统。所以「装扩展」和「装技能」是同一次操作，不需要用户再走一遍技能面板。
 
-### 12.5 存储与状态
+### 11.5 存储与状态
 
 ```
 <config>/extensions/<publisher.name>-<version>/
@@ -420,11 +366,11 @@ set("--accent", &["focusBorder", "button.background", "activityBarBadge.backgrou
 
 `list()` 是目录扫描 + 读 sidecar，不做数据库。启用/停用只翻 sidecar 的一个布尔值；主题下拉、片段查询、`extensions:count` 事件都据此过滤。装完 emit 一次 `extensions:count`，编辑器据此清空片段缓存（`resetSnippetCache()`），否则换了扩展还得重启才看到新片段。
 
-## 13. Node 扩展宿主
+## 12. Node 扩展宿主
 
 `src-tauri/src/exthost/` 负责让 `extension.js` 真的跑起来。设计目标只有一个：**扩展崩溃不能带崩 IDE，扩展卡住不能让 IDE 卡住**。后者比前者难，因为 `showInformationMessage` 这类 API 天生是阻塞的。
 
-### 13.1 一个扩展一个 `node` 进程
+### 12.1 一个扩展一个 `node` 进程
 
 ```
 ExtHost (Rust, 单例)
@@ -437,7 +383,7 @@ ExtHost (Rust, 单例)
 
 不共享进程有三个现实理由：扩展的 `require` 缓存互不可见（VS Code 也是隔离的）；一个扩展 `while(true)` 只烧自己一个核；`process.exit()` 只杀自己。代价是内存（每个 Node 约 40 MB），所以宿主**按需启动**——装了不跑不占内存。
 
-### 13.2 帧格式：NDJSON，stdout 就是协议
+### 12.2 帧格式：NDJSON，stdout 就是协议
 
 ```jsonc
 { "t":"req",  "id":7, "method":"window.message", "params":{…} }  // 宿主 → core，要回
@@ -457,7 +403,7 @@ console.log = console.info = … = toStderr;   // 连 util.inspect 都保留
 
 否则任何一句 `console.log` 都会把下一帧的 JSON 切碎，`JSON.parse` 失败后整条通道静默失效——这是最容易踩且最难查的一类 bug，所以选择在源头堵死而不是在解析端容错。
 
-### 13.3 `vscode` 模块：一次加载，两种写法
+### 12.3 `vscode` 模块：一次加载，两种写法
 
 扩展有 CommonJS 也有 ESM，必须让两者拿到**同一个**单例：
 
@@ -482,7 +428,7 @@ module.exports.window = api.window;
 
 `node_modules/vscode` 放在 `<config>/` 而不是扩展目录，是因为 Node 的解析会从 `<config>/extensions/<id>/` 一路往上找，一份 shim 服务所有扩展。**具名导出不能省**：`cjs-module-lexer` 是静态分析，看不到 `module.exports = api` 里有什么，只有写成 `module.exports.commands = …` 才能让 `import { commands }` 通过链接期校验。
 
-### 13.4 两套 id，别混用
+### 12.4 两套 id，别混用
 
 | 表 | 键 | 谁等待 | 超时 |
 | --- | --- | --- | --- |
@@ -503,7 +449,7 @@ struct UiWaiter {
 
 宿主进程退出时 `drop_waiters()` 清掉它名下的等待者：没人等的弹窗不该留在表里。
 
-### 13.5 阻塞式 UI：等待者表 + 渲染进程代答
+### 12.5 阻塞式 UI：等待者表 + 渲染进程代答
 
 `showInformationMessage` / `showQuickPick` / `showInputBox` 在 VS Code 里是返回 Promise 的，Promise 的 resolve 时机由用户决定。落地方式：
 
@@ -524,7 +470,7 @@ struct UiWaiter {
 - **`quickPick` 回传的是索引，不是标签。** 渲染进程只认识 `label/description/detail`，但扩展期望拿回自己塞进去的对象（`{ label, value: 42 }`）。所以 UI 回 `number | number[]`，宿主侧 `list[sel]` 映射回原对象；同理 `canPickMany` 回数组。
 - **`messageBox` 没有按钮时补一个「关闭」**，返回 `undefined` —— 对应 VS Code 的「弹窗被关掉」。
 
-### 13.6 主线程不能等
+### 12.6 主线程不能等
 
 Tauri 的命令默认在主线程执行。`exthost_run` 要等扩展返回值（最长 60 s），`exthost_start` 要等进程 spawn + `ready` 帧，写在主线程上就是整个窗口假死。所以凡是有可能阻塞的命令一律：
 
@@ -532,7 +478,7 @@ Tauri 的命令默认在主线程执行。`exthost_run` 要等扩展返回值（
 tauri::async_runtime::spawn_blocking(move || host.reverse(&id, "executeCommand", args))
 ```
 
-### 13.7 文档镜像：编辑器状态是唯一的真相
+### 12.7 文档镜像：编辑器状态是唯一的真相
 
 扩展的 `activeTextEditor` 不是它自己维护的，是从 IDE 镜像过去的：
 
@@ -548,20 +494,20 @@ editor open/change/save/close
 
 扩展改文档走反方向：`editor.edit(builder)` → `rreq "editor.edit"` → `exthost://edit` → 渲染进程把 `{start,end,text}` 换成偏移量，自下而上一次性 `view.dispatch`（自下而上是为了让前面的编辑不移动后面还没用的偏移量）。
 
-### 13.8 Node 运行时自举
+### 12.8 Node 运行时自举
 
 不假设用户装了 Node（IDE 的目标用户里有一半没有）。`exthost_install_node`：
 
 ```
 GET https://nodejs.org/dist/index.json   → 取第一个 lts 非空且 win-x64 有包的版本
 GET …/node-v{ver}-win-x64.zip            → 内存里解开
-  → §12.2 的 ZIP 读取器只挑 node.exe（+ LICENSE）
+  → §11.2 的 ZIP 读取器只挑 node.exe（+ LICENSE）
   → <config>/runtime/node/node.exe
 ```
 
-复用 §12.2 那个 ZIP 读取器是刻意的：它已经在 `flate2` 上，不必为「下载 Node」再引一个解压库。检测顺序是 配置路径 → 自带运行时 → `PATH` → `%ProgramFiles%\nodejs\node.exe`，`node -v` 拿版本号，拿不到就当没装，界面上给一条横幅而不是让宿主启动失败。
+复用 §11.2 那个 ZIP 读取器是刻意的：它已经在 `flate2` 上，不必为「下载 Node」再引一个解压库。检测顺序是 配置路径 → 自带运行时 → `PATH` → `%ProgramFiles%\nodejs\node.exe`，`node -v` 拿版本号，拿不到就当没装，界面上给一条横幅而不是让宿主启动失败。
 
-### 13.9 生命周期
+### 12.9 生命周期
 
 `extensions.autostart` 为真的扩展在启动后 `autostart_delay_ms`（默认 1500 ms）自动起宿主——晚于首屏，不抢启动时间。窗口关闭走：
 
@@ -573,7 +519,7 @@ GET …/node-v{ver}-win-x64.zip            → 内存里解开
 
 没有这一步，`node.exe` 会留在任务管理器里——开发期尤其致命，几次热重启就堆出一屏孤儿进程，还都占着 `<config>/runtime` 的日志文件。
 
-### 13.10 已实现的 API 面
+### 12.10 已实现的 API 面
 
 | 分组 | 已实现 |
 | --- | --- |
@@ -593,11 +539,11 @@ GET …/node-v{ver}-win-x64.zip            → 内存里解开
 
 未实现的 API 一律**存在但是抛 `not implemented`**，而不是 `undefined`——`if (vscode.window.createTreeView)` 这种特性探测拿到 `undefined` 会让扩展悄悄降级，拿到能抛错的函数至少日志里有名字。
 
-## 14. 内置插件商店
+## 13. 内置插件商店
 
 面板有两个页签：**已安装**、**商店**。商店直连 Open VSX，不开浏览器。
 
-### 14.1 只用一个 API，三条请求
+### 13.1 只用一个 API，三条请求
 
 ```
 GET /-/search?query=&category=&sortBy=&size=24&offset=N
@@ -607,7 +553,7 @@ GET /api/{publisher}/{name}/{ver}    → 安装时拿 files.download
 
 `sortBy` 支持 `downloadCount`（默认）/`averageRating`/`timestamp`，与 `relevance`（有 query 时）。分类用 Open VSX 自己的字符串（`Programming Languages`、`Themes`…），不做本地映射表——它改名了我们跟着变，比翻译一份对不上的分类便宜。
 
-### 14.2 README 要洗一遍
+### 13.2 README 要洗一遍
 
 详情页的 README 是原始 Markdown，里面塞满了徽章、相对路径图片、以及 `<picture>`/`<div align>` 这类 HTML。直接丢给项目的 `renderMarkdown` 会渲染出几十个碎图标和一堆空行：
 
@@ -619,15 +565,15 @@ md.replace(/<img[^>]*>/gi, '')        // 徽章
 
 保留 alt 文字是为了「下载量 1M+」这类信息还看得见。README 在 Rust 侧截到 60 kB——最长的几个（`ms-python.python`）有 200 kB 以上，整篇塞进 IPC 会让详情页白屏半秒。
 
-### 14.3 装完就能跑
+### 13.3 装完就能跑
 
 商店的「安装」和面板上的输入框走**同一个** `extensions_install`。区别只有一处：商店知道确切版本，所以直接 `/api/{pub}/{name}/{ver}`，避免 `latest` 跟用户看到的版本号不一致。
 
 装完刷新列表；若该扩展有 `main`，卡片上直接出现宿主条与「启动宿主」，命令面板（`Ctrl+Shift+P`）里同步出现它的命令。整条链路没有「重启生效」这一步。
 
-## 15. 面板交互与报错主题：两条 UI 约定
+## 14. 面板交互与报错主题：两条 UI 约定
 
-### 15.1 `hidden` 属性不是保险
+### 14.1 `hidden` 属性不是保险
 
 插件面板踩过一次「整页点不动」：`.store` 是 `position: absolute; inset: 0; display: flex`，`.ext-body` / `.ext-detail` 也都是 `display: flex`。`hidden` 只在 **UA 样式表**里声明 `display: none`，作者样式表里任何一条 `display` 都会以更高优先级赢下来，于是：
 
@@ -644,11 +590,11 @@ md.replace(/<img[^>]*>/gi, '')        // 徽章
 [hidden] { display: none !important; }
 ```
 
-项目里所有 `hidden` 用法（`dock` / `editor-area` / `bridge` 的 provider 行 / 扩展面板）都是真隐藏，没有「挂着 hidden 但靠 CSS 显示」的例外，所以这条规则没有副作用。**任何新增的、带 `display` 的全屏层都必须靠 `hidden` 切换可见性**，不要再写 `style.display`。
+项目里所有 `hidden` 用法（`dock` / `editor-area` / 扩展面板）都是真隐藏，没有「挂着 hidden 但靠 CSS 显示」的例外，所以这条规则没有副作用。**任何新增的、带 `display` 的全屏层都必须靠 `hidden` 切换可见性**，不要再写 `style.display`。
 
 同一轮还把 `.toasts` 容器设成 `pointer-events: none`（单个 toast 恢复 `auto`）：右下角的通知堆恰好压在按钮上时，也不该让整个界面「点了没反应」。
 
-### 15.2 报错颜色必须来自语义变量
+### 14.2 报错颜色必须来自语义变量
 
 错误提示原来散着几处写死的 rgba：聊天气泡用 `rgba(248,113,113,…)`（暗色主题的红），扩展弹窗徽章用 `rgba(220,38,38,…)`（亮色主题的红）。结果是切主题后，一半的报错组件仍停留在另一种配色里，且自定义主题覆盖 `--err` 时完全跟不上。
 
@@ -673,7 +619,7 @@ background: linear-gradient(var(--err-soft), var(--err-soft)), var(--bg-3);
 
 面板内的错误（搜索失败、列表加载失败、日志读取失败）不再用一闪而过的 toast，而是留在用户正在看的位置，用带「重试」按钮的行内错误块；标题全部走 i18n，8 种语言都有对应键。
 
-## 16. 端到端实测：装一个真正的 Open VSX 扩展
+## 15. 端到端实测：装一个真正的 Open VSX 扩展
 
 前面所有验证都用的是手工造的 smoke 扩展。最后一轮换成 `esbenp.prettier-vscode` 12.4.0（2 MB VSIX、`"type": "module"`、ESM 打包、35 个配置项），从商店搜索一路点到命令执行，暴露了 5 个只在真实生态里才会遇到的 bug。
 
@@ -689,4 +635,4 @@ background: linear-gradient(var(--err-soft), var(--err-soft)), var(--bg-3);
 
 **实测结果**：搜索 → 分类（Themes）→ 排序（评分）→ 详情（15 kB README、40 个版本、无碎图/无横向溢出、`JS` 标记由 `files.manifest` 的 `main` 判定）→ 安装 → 已安装卡片出现宿主条 → 启动 → `activate()` 成功、输出通道打印扩展名与版本 → 3 个命令 `live: true` → 点 `prettier.openOutput` 返回 `✓`。全程没有重启 IDE。
 
-仍然明确不做：语言服务类 provider 的真实实现（补全/诊断/跳转）、Webview、TreeView、Task/Terminal。§13.10 的表格不变——「能注册、不崩」和「真的提供补全」是两件事。
+仍然明确不做：语言服务类 provider 的真实实现（补全/诊断/跳转）、Webview、TreeView、Task/Terminal。§12.10 的表格不变——「能注册、不崩」和「真的提供补全」是两件事。
