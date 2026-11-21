@@ -1156,12 +1156,29 @@ pub fn window_control(app: tauri::AppHandle, action: String) -> Result<(), Strin
 /// run until someone has actually turned it on. A stale front end, a scripted
 /// `invoke`, or a config file copied from another machine all hit this wall
 /// instead of quietly starting a proxy.
-fn bridge_armed(state: &State<'_, AppState>) -> Result<(), String> {
+fn bridge_enabled(state: &State<'_, AppState>) -> Result<(), String> {
     if crate::util::lock(&state.config).bridge.enabled {
         Ok(())
     } else {
         Err("网页桥接没有启用：请到 设置 → 高级 手动打开".to_string())
     }
+}
+
+/// The second gate: revealing the panel is not the same as opening the door.
+///
+/// The endpoint answers with whatever the user is signed in to in the browser,
+/// so starting it is a separate decision from switching the feature on. Both
+/// the panel button and the background `ensure` path go through here, which
+/// means a script cannot skip the confirmation either.
+fn bridge_armed(state: &State<'_, AppState>) -> Result<(), String> {
+    let cfg = crate::util::lock(&state.config);
+    if !cfg.bridge.enabled {
+        return Err("网页桥接没有启用：请到 设置 → 高级 手动打开".to_string());
+    }
+    if !cfg.bridge.full_access {
+        return Err("还没有确认完全访问：请在右侧栏的面板里确认一次".to_string());
+    }
+    Ok(())
 }
 
 /// Makes sure the endpoint has a token before it starts listening.
@@ -1195,16 +1212,56 @@ pub fn web2api_status(bridge: State<'_, Arc<crate::bridge::Bridge>>) -> crate::b
     bridge.status()
 }
 
+/// The second confirmation, taken in the panel — the switch alone does not
+/// start anything.
+///
+/// Revoking also closes the port: "off" that leaves a listener answering
+/// requests would be the worst of both worlds.
+#[tauri::command]
+pub fn web2api_set_full_access(
+    state: State<'_, AppState>,
+    bridge: State<'_, Arc<crate::bridge::Bridge>>,
+    on: bool,
+) -> Result<crate::config::BridgeConfig, String> {
+    if on {
+        // A confirmation granted while the feature is off would be inherited
+        // by the next enable, which is exactly the silent yes this gate exists
+        // to prevent.
+        bridge_enabled(&state)?;
+    }
+    let cfg = {
+        let mut cfg = crate::util::lock(&state.config);
+        cfg.bridge.full_access = on;
+        if !on {
+            // `sync` inside clears the provider when the master is off; the
+            // explicit call keeps the provider off the moment access is
+            // revoked, without waiting for a restart.
+            cfg.set_web2api_enabled(false);
+        }
+        cfg.sync_web2api_provider();
+        cfg.bridge.clone()
+    };
+    state.save()?;
+    if !on {
+        bridge.stop();
+    }
+    Ok(cfg)
+}
+
 /// Open the vendor's own site in a persistent WebView so the user can log in
 /// once; browser-mode sources then send requests from inside that page.
 /// Closing that window hides it — the login state is kept.
+///
+/// Only the master switch is required: signing in is preparation, not access,
+/// and locking it behind the confirmation would leave the panel asking the user
+/// to confirm something they cannot yet test.
 #[tauri::command]
 pub async fn web2api_open_session(
     state: State<'_, AppState>,
     source_id: String,
     home_url: String,
 ) -> Result<(), String> {
-    bridge_armed(&state)?;
+    bridge_enabled(&state)?;
     {
         let cfg = crate::util::lock(&state.config);
         crate::websession::sync_sources(&cfg.bridge);

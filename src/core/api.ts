@@ -3,7 +3,8 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type {
-  AgentEvent, AppConfig, AppInfo, AppUpdate, BridgeLogRow, BridgeStatus, Effort, ExtDetail,
+  AgentEvent, AppConfig, AppInfo, AppUpdate, BridgeConfig, BridgeLogRow, BridgeStatus, Effort,
+  ExtDetail,
   ExtInspect, ExtSearchRow, ExtUiRequest, ExtUpdate, ExtensionInfo, FsEntry, GitFileStatus, HostLog,
   HostStatus, McpServerConfig, McpServerView, McpToolInfo, Message, ModelInfo,
   NodeInfo, ProviderConfig, RuntimeCommand, SearchHit, Skill, SnippetRow, StatusItem,
@@ -136,6 +137,9 @@ export const api = {
 
   // web2api bridge
   web2apiStatus: () => invoke<BridgeStatus>('web2api_status'),
+  /** The second confirmation. Turning it off closes the port as well. */
+  web2apiSetFullAccess: (on: boolean) =>
+    invoke<BridgeConfig>('web2api_set_full_access', { on }),
   web2apiStart: () => invoke<BridgeStatus>('web2api_start'),
   web2apiStop: () => invoke<BridgeStatus>('web2api_stop'),
   web2apiLog: () => invoke<BridgeLogRow[]>('web2api_log'),

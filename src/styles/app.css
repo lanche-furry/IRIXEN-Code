@@ -2693,15 +2693,41 @@
   font-size: 12.5px;
 }
 
-/* The bridge panel was laid out for a dock that owns the full pane height.
-   Inside the modal it has to grow with its content and scroll with the tab. */
-.bridge-host .bridge {
-  grid-template-rows: auto auto;
-  overflow: visible;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius);
+/* "The switch is on" row: it says where the panel went instead of leaving the
+   user to hunt the rail for a button that just appeared. */
+.adv-on {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  flex-wrap: wrap;
 }
-.bridge-host .bridge-body {
-  overflow: visible;
-  padding: 10px;
+.adv-on .hint { flex: 1; min-width: 180px; }
+
+/* The second confirmation, at the top of the panel it unlocks. Deliberately
+   reads as a gate rather than a notice: it is the only thing on screen until
+   someone presses the button. */
+.bridge-gate-card {
+  border: 1px solid var(--warn);
+  background: var(--warn-soft, transparent);
+  border-radius: var(--radius);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+.bridge-gate-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--warn);
+}
+.bridge-gate-body {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--text-1);
 }

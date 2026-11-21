@@ -269,6 +269,7 @@ pub fn run() {
             commands::main_loaded,
             commands::window_control,
             commands::web2api_status,
+            commands::web2api_set_full_access,
             commands::web2api_start,
             commands::web2api_stop,
             commands::web2api_log,

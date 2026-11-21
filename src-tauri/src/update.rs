@@ -20,7 +20,11 @@ use crate::net;
 
 /// Product label shown everywhere in the UI. Package metadata must stay valid
 /// semver, so the human-facing version lives here next to the release check.
-pub const DISPLAY_VERSION: &str = "Beta 0.5";
+///
+/// It has to match the release tag exactly: `is_current_label` compares the two
+/// and a mismatch offers every user an "update" to the build they are running.
+/// Bumping this is what makes an already-installed copy notice a re-cut.
+pub const DISPLAY_VERSION: &str = "Beta 0.5.2";
 
 pub const REPO_URL: &str = "https://github.com/lanche-furry/IRIXEN-Code";
 pub const RELEASES_URL: &str = "https://github.com/lanche-furry/IRIXEN-Code/releases";

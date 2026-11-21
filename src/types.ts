@@ -133,6 +133,10 @@ export interface BridgeConfig {
   /** Master switch (Settings → Advanced). Off for everyone who has not asked
    *  for it; nothing listens on a port until this is true. */
   enabled: boolean;
+  /** The second confirmation, taken in the panel: the switch only shows the
+   *  panel, this is what allows the endpoint to answer requests. Cleared when
+   *  the master switch goes off, so re-enabling asks again. */
+  full_access: boolean;
   auto_start: boolean;
   port: number;
   api_key: string;

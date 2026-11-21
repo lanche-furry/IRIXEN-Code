@@ -11,7 +11,6 @@ import { debounce } from '../core/dom';
 import { isLoopback } from '../core/providers';
 import { ALL_EFFORTS, effortLabel } from '../core/effort';
 import { openOnboarding } from './onboarding';
-import { mountBridge } from './bridge';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import type { AppConfig, AppUpdate, Effort, McpServerConfig, ProviderConfig, Protocol } from '../types';
 
@@ -25,10 +24,6 @@ let tabsEl: HTMLElement | null = null;
 let titleEl: HTMLElement | null = null;
 let closeBtn: HTMLButtonElement | null = null;
 let unsubLang: (() => void) | null = null;
-/** Panels that own a timer or a subscription. Cleared on every tab switch and
- *  on close: the Web2API panel polls status, and a timer outliving its DOM is
- *  how you get a renderer that never idles. */
-let tabDisposers: (() => void)[] = [];
 
 const persistSoon = debounce(() => void persist(), 500);
 
@@ -112,8 +107,6 @@ function onKey(e: KeyboardEvent) {
 }
 
 export function closeSettings() {
-  for (const d of tabDisposers) d();
-  tabDisposers = [];
   if (overlay) overlay.remove();
   overlay = null;
   titleEl = null;
@@ -155,8 +148,6 @@ function renderTabs() {
 
 function renderBody() {
   if (!bodyEl || !draft) return;
-  for (const d of tabDisposers) d();
-  tabDisposers = [];
   clear(bodyEl);
   if (tab === 'providers') bodyEl.append(providersTab());
   else if (tab === 'agent') bodyEl.append(agentTab());
@@ -938,11 +929,12 @@ async function addMcp(redraw: () => void) {
 /**
  * Everything that is not a setting so much as a decision.
  *
- * The web bridge (Web2API) lives here rather than in the dock because it
- * reverse-proxies a vendor's own web UI: running it can put an account at risk
- * with that vendor, and nothing about that belongs in a default install. It is
- * off until someone reads the paragraph and flips the switch, and the rest of
- * the panel does not even exist until then.
+ * The web bridge (Web2API) is switched on here because it reverse-proxies a
+ * vendor's own web UI: running it can put an account at risk with that vendor,
+ * and nothing about that belongs in a default install. This page owns the
+ * switch only. Once it is on the panel appears in the right rail, and the step
+ * that actually lets the endpoint answer — full access — is confirmed there, a
+ * second yes that the switch does not grant.
  */
 function advancedTab(): HTMLElement {
   if (!draft) return h('div');
@@ -971,20 +963,22 @@ function advancedTab(): HTMLElement {
     h('div', { class: 'adv-card' }, head,
       h('div', { class: 'adv-warn' }, t('adv.bridgeWarn')),
       b.enabled
-        ? null
+        ? h('div', { class: 'adv-on' },
+            h('div', { class: 'hint' }, t('adv.bridgeOn')),
+            h('button', {
+              class: 'btn',
+              onClick: () => {
+                // The panel is a dock surface now, so getting there means
+                // leaving the modal first — the rail button it mirrors is
+                // behind it.
+                closeSettings();
+                emit('surface:open', 'bridge');
+              },
+            }, icon('plug', 13), t('adv.bridgeOpen')),
+          )
         : h('div', { class: 'hint', style: { marginTop: '8px' } }, t('adv.bridgeOff')),
     ),
   );
-
-  // Only build the panel when it is switched on: mounting it while off would
-  // poll a bridge that is not allowed to exist, and would put the local
-  // endpoint and its token on screen for a feature the user never enabled.
-  if (b.enabled) {
-    const host = h('div', { class: 'bridge-host' });
-    wrap.append(host);
-    const dispose = mountBridge(host);
-    tabDisposers.push(dispose);
-  }
 
   wrap.append(addonsCard());
   return wrap;
@@ -1090,6 +1084,10 @@ function addonsCard(): HTMLElement {
 
 /** Persist the master switch, then take the listener down if it just closed. */
 async function applyMasterSwitch(on: boolean) {
+  // Switching off revokes the panel's confirmation on the backend (the two
+  // gates cannot be inherited in that order), so the draft has to forget it
+  // too — otherwise the fields would show a grant the config no longer holds.
+  if (!on && draft) draft.bridge.full_access = false;
   await persist();
   if (!on) {
     // `web2api_stop` is a no-op when it was never started; the call is here so

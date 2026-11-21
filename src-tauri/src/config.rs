@@ -503,6 +503,16 @@ pub struct BridgeConfig {
     /// slips them into. It lives under Settings → Advanced for the same reason.
     #[serde(default)]
     pub enabled: bool,
+    /// The second yes, and it is asked for separately.
+    ///
+    /// `enabled` only reveals the panel in the right rail; it does not hand
+    /// anything out. Clients reach the user's *logged-in* browser session
+    /// through this endpoint, so the step that actually opens the door — the
+    /// endpoint answering requests — is a distinct, explicit confirmation taken
+    /// in the panel. Switching the master off revokes it, so turning the
+    /// feature back on asks again instead of inheriting a stale yes.
+    #[serde(default)]
+    pub full_access: bool,
     #[serde(default)]
     pub auto_start: bool,
     #[serde(default = "default_bridge_port")]
@@ -612,6 +622,7 @@ impl Default for BridgeConfig {
     fn default() -> Self {
         BridgeConfig {
             enabled: false,
+            full_access: false,
             auto_start: false,
             port: default_bridge_port(),
             api_key: String::new(),
@@ -1189,6 +1200,13 @@ impl AppConfig {
     /// user's decision. Called on load and on every config save so a stale
     /// key can never produce the "invalid api key" 401 the agent used to hit.
     pub fn sync_web2api_provider(&mut self) {
+        // The second gate cannot outlive the first one. Turning the master
+        // switch off drops the acknowledgement, so turning it back on asks
+        // again instead of inheriting last week's yes — and a config file
+        // hand-edited to `full_access: true` with the feature off stays inert.
+        if !self.bridge.enabled {
+            self.bridge.full_access = false;
+        }
         let preset = web2api_provider(&self.bridge);
         // The provider is only ever as switchable as the master switch in
         // Settings → Advanced. Without this, turning that off would leave a
@@ -1236,8 +1254,10 @@ impl AppConfig {
     pub fn set_web2api_enabled(&mut self, on: bool) {
         // `on` is the second-level switch (bridge running). The master switch
         // in Settings → Advanced outranks it: with that off there is no bridge
-        // to point a provider at, whatever a stale command asks for.
-        let on = on && self.bridge.enabled;
+        // to point a provider at, whatever a stale command asks for. The panel
+        // confirmation outranks it too — a provider that is selectable but
+        // cannot start reads as a broken model, not as a missing permission.
+        let on = on && self.bridge.enabled && self.bridge.full_access;
         self.sync_web2api_provider();
         if let Some(p) = self
             .providers
@@ -1363,5 +1383,51 @@ mod addons_tests {
         assert!(target.join("ext/pub.ext/package.json").exists());
         let _ = std::fs::remove_dir_all(&legacy);
         let _ = std::fs::remove_dir_all(&target);
+    }
+}
+
+#[cfg(test)]
+mod bridge_gate_tests {
+    use super::*;
+
+    fn provider_on(cfg: &AppConfig) -> bool {
+        cfg.provider(WEB2API_PROVIDER_ID)
+            .map(|p| p.enabled)
+            .unwrap_or(false)
+    }
+
+    #[test]
+    fn a_confirmation_without_the_master_switch_is_dropped() {
+        // A hand-edited file, or a config written by a build that had the two
+        // gates reversed: full access on, feature off. The panel must come back
+        // asking, not inherit the stale yes.
+        let mut cfg = AppConfig::default();
+        cfg.bridge.enabled = false;
+        cfg.bridge.full_access = true;
+        cfg.sync_web2api_provider();
+        assert!(!cfg.bridge.full_access);
+    }
+
+    #[test]
+    fn the_switch_alone_publishes_nothing_to_the_picker() {
+        let mut cfg = AppConfig::default();
+        cfg.bridge.enabled = true;
+        cfg.bridge.full_access = false;
+        cfg.set_web2api_enabled(true);
+        assert!(!provider_on(&cfg), "a model that cannot start is not a model");
+    }
+
+    #[test]
+    fn both_yeses_make_the_provider_selectable() {
+        let mut cfg = AppConfig::default();
+        cfg.bridge.enabled = true;
+        cfg.bridge.full_access = true;
+        cfg.set_web2api_enabled(true);
+        assert!(provider_on(&cfg));
+        // And the master switch still outranks it, in that order.
+        cfg.bridge.enabled = false;
+        cfg.set_web2api_enabled(true);
+        assert!(!provider_on(&cfg));
+        assert!(!cfg.bridge.full_access, "revocation is not reversible by itself");
     }
 }

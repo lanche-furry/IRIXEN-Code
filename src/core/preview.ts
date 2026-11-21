@@ -100,6 +100,7 @@ export function previewConfig(): AppConfig {
       // The preview shell never enables the bridge: it is the one switch that
       // has to be a real decision, and a demo fixture is not one.
       enabled: false,
+      full_access: false,
       auto_start: false,
       port: 8791,
       api_key: '',

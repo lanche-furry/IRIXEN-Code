@@ -44,17 +44,16 @@ let sessions: WebSessionInfo[] = [];
 let sessionSig = '';
 let poll: number | null = null;
 let draft: BridgeConfig | null = null;
+let gateEl: HTMLElement | null = null;
 
 const clone = (c: BridgeConfig): BridgeConfig => JSON.parse(JSON.stringify(c)) as BridgeConfig;
 
 /**
  * Mounts the panel into `host` and returns its disposer.
  *
- * This used to be a dock surface of its own. It now lives under Settings →
- * Advanced, behind a master switch, so polling belongs to the mount: closing
- * the modal tears the panel down and nothing may keep a 3 s timer alive after
- * that. The old code bound the interval to `app.surface`, which only worked
- * because there was exactly one place the panel could ever appear.
+ * It is a dock surface again — Settings → Advanced only owns the switch that
+ * makes the rail button exist. Polling belongs to the mount: unmounting tears
+ * the panel down, and nothing may keep a 3 s timer alive after that.
  */
 export function mountBridge(host: HTMLElement): () => void {
   root = h('div', { class: 'bridge', dataset: { panel: 'bridge' } });
@@ -92,6 +91,10 @@ export function mountBridge(host: HTMLElement): () => void {
   );
 
   configEl = h('div', { class: 'bridge-config' });
+  // The second gate sits above the settings it guards: the panel is visible as
+  // soon as the switch is on, but the endpoint does not answer until this is
+  // confirmed — and that is the one thing a switch must not grant silently.
+  gateEl = h('div', { class: 'bridge-gate' });
   statsEl = h('div', { class: 'bridge-note' });
   logBody = h('div', { class: 'bridge-log' });
   const logCard = h(
@@ -125,10 +128,11 @@ export function mountBridge(host: HTMLElement): () => void {
     testEl,
   );
 
-  root.append(head, h('div', { class: 'bridge-body' }, configEl, testCard, logCard));
+  root.append(head, h('div', { class: 'bridge-body' }, gateEl, configEl, testCard, logCard));
   host.append(root);
 
   renderConfig();
+  renderGate();
   void refreshBridge();
   void refreshSessions(false);
   startPolling();
@@ -137,6 +141,7 @@ export function mountBridge(host: HTMLElement): () => void {
     stopPolling();
     root?.remove();
     root = null;
+    gateEl = null;
     // A pending paint would otherwise write into a detached tree; nulling the
     // draft also makes a late `apply()` a no-op instead of a surprise save.
     draft = null;
@@ -614,6 +619,58 @@ function stopPolling() {
   poll = null;
 }
 
+/* ------------------------------------------------------------ full access */
+
+/**
+ * The panel's second yes.
+ *
+ * `enabled` (Settings → Advanced) only makes this panel reachable. The endpoint
+ * answers with the user's logged-in browser session, so the step that actually
+ * opens it is taken here, in front of the endpoint it opens — not on a settings
+ * page where the consequence is abstract.
+ */
+function renderGate() {
+  if (!gateEl) return;
+  const armed = Boolean(app.config?.bridge.full_access);
+  clear(gateEl);
+  gateEl.hidden = armed;
+  if (toggleBtn) {
+    // A start button that throws a permission error is a worse answer than a
+    // button that is visibly waiting for the confirmation above it.
+    toggleBtn.disabled = !armed;
+    toggleBtn.title = armed ? '' : t('bridge.gateNeed');
+  }
+  if (armed) return;
+  gateEl.append(
+    h('div', { class: 'bridge-gate-card' },
+      h('div', { class: 'bridge-gate-title' },
+        icon('lock', 13),
+        h('span', null, t('bridge.gateTitle')),
+      ),
+      h('p', { class: 'bridge-gate-body' }, t('bridge.gateBody')),
+      h('button', {
+        class: 'btn primary',
+        onClick: () => void confirmFullAccess(),
+      }, icon('shield', 13), t('bridge.gateConfirm')),
+    ),
+  );
+}
+
+async function confirmFullAccess() {
+  try {
+    const cfg = await api.web2apiSetFullAccess(true);
+    if (app.config) app.config.bridge = cfg;
+    // The draft was cloned before this click; without this the next Save would
+    // post `full_access: false` and quietly revoke what was just granted.
+    if (draft) draft.full_access = true;
+    emit('config:changed');
+    renderGate();
+    toast(t('bridge.gateDone'), 'ok', 2200);
+  } catch (e) {
+    toast(errText(e), 'err', 4200);
+  }
+}
+
 function paint() {
   if (!status) return;
   if (dotEl) dotEl.classList.toggle('on', status.running);
@@ -672,6 +729,13 @@ export async function refreshBridge() {
 
 async function toggleRun() {
   if (!toggleBtn) return;
+  // The button is disabled while the gate is shut; this is the guard for the
+  // paths that do not go through a click (a stale panel, a keyboard activation
+  // racing the config) and it names the missing step instead of the raw error.
+  if (!app.config?.bridge.full_access) {
+    toast(t('bridge.gateNeed'), 'err', 3600);
+    return;
+  }
   toggleBtn.disabled = true;
   try {
     status = status?.running ? await api.web2apiStop() : await api.web2apiStart();
@@ -704,6 +768,10 @@ async function apply() {
   draft.model = (modelInput?.value || '').trim();
   draft.provider_id = providerSel?.value || '';
   draft.auto_ensure = autoEnsureInput ? autoEnsureInput.checked : true;
+  // Not an editable field, and the draft may predate the confirmation: taking
+  // the live value keeps a Save from revoking the gate by accident.
+  draft.full_access = app.config.bridge.full_access;
+  draft.enabled = app.config.bridge.enabled;
 
   const wasRunning = Boolean(status?.running);
   try {

@@ -24,6 +24,7 @@ import { mountStats, refreshStats } from './stats';
 import { mountChat, refreshComposer, renderHead, reconcileProviders } from './chat';
 import { mountReview, refreshReview, reviewCount } from './review';
 import { mountExtensions, refreshExtensions } from './extensions';
+import { mountBridge, refreshBridge } from './bridge';
 import { mountExtGlue } from './extglue';
 import { mountWebviews } from './webview';
 import {
@@ -52,6 +53,11 @@ let statusModel: HTMLElement | null = null;
 let statusTokens: HTMLElement | null = null;
 let termBody: HTMLElement | null = null;
 let extStatusEl: HTMLElement | null = null;
+/** The bridge panel polls while it is mounted, so its disposer is kept next to
+ *  the `remountPanels` that replaces it — `clear(dock)` alone would leave a
+ *  timer writing into detached nodes. */
+let disposeBridge: (() => void) | null = null;
+let bridgeMounted = false;
 let mounted: ViewId | string = '';
 /** Non-null while an extension-contributed container owns the sidebar. */
 let activeExtView: string | null = null;
@@ -359,11 +365,18 @@ function paintRail() {
   );
 
   const hasFiles = app.files.length > 0;
+  // Only a switch that is on earns a button. Painting it unconditionally would
+  // put a panel in the rail that cannot do anything, and the whole point of the
+  // switch is that nobody meets this feature by accident.
+  const bridgeOn = Boolean(app.config?.bridge.enabled);
 
-  railEl.append(
+  // `append` stringifies `null`, so the conditional entry is filtered out
+  // rather than handed to it.
+  [
     dockBtn('chat', 'chat', t('rail.chat')),
+    bridgeOn ? dockBtn('bridge', 'plug', t('rail.bridge')) : null,
     dockBtn('extensions', 'puzzle', t('rail.extensions'), app.hosts.filter((h) => h.state === 'running').length),
-  );
+  ].forEach((btn) => btn && railEl?.append(btn));
 
   if (hasFiles) {
     railEl.append(
@@ -392,6 +405,10 @@ function paintRail() {
 /** Show a dock panel, or the file view that covers it. */
 export function setSurface(surface: Surface) {
   if (surface === 'editor' && app.files.length === 0) surface = 'chat';
+  // The bridge panel exists only while the advanced switch is on. A stale
+  // surface — switch turned off from Settings, config reset — lands on chat
+  // instead of a stage with nothing in it.
+  if (surface === 'bridge' && !app.config?.bridge.enabled) surface = 'chat';
   app.surface = surface;
 
   const dock = surfaceEl?.querySelector('.dock') as HTMLElement | null;
@@ -409,6 +426,7 @@ export function setSurface(surface: Surface) {
   if (surface === 'chat') refreshComposer();
   else if (surface === 'review') void refreshReview();
   else if (surface === 'extensions') void refreshExtensions();
+  else if (surface === 'bridge') void refreshBridge();
   emit('surface', surface);
 }
 
@@ -721,10 +739,17 @@ function relabel() {
 function remountPanels() {
   const dock = surfaceEl?.querySelector('.dock') as HTMLElement | null;
   if (!dock) return;
+  disposeBridge?.();
+  disposeBridge = null;
   clear(dock);
   mountChat(dock);
   mountReview(dock);
   mountExtensions(dock);
+  // Mounting is what starts polling, so it happens only when the switch is on.
+  // The panel itself is built by the same call that used to run inside
+  // Settings; the only difference is where it lives.
+  bridgeMounted = Boolean(app.config?.bridge.enabled);
+  if (bridgeMounted) disposeBridge = mountBridge(dock);
   setSurface(app.surface);
   if (app.surface === 'review') void refreshReview();
   else if (app.surface === 'extensions') void refreshExtensions();
@@ -819,10 +844,20 @@ function bindGlobal() {
     // A provider may have been switched on/off (or the bridge started). Rebuild
     // the model list instead of leaving the composer on a stale selection.
     void reconcileProviders();
+    // The advanced switch is what decides whether the bridge button and panel
+    // exist at all, so that one flag is the only config change worth a relayout.
+    const wanted = Boolean(app.config?.bridge.enabled);
+    if (wanted !== bridgeMounted) {
+      paintRail();
+      remountPanels();
+    }
   });
   on('session:changed', () => refreshComposer());
   on('editor:file', () => renderStatus());
   on('editor:cover', (show: boolean) => setSurface(show ? 'editor' : 'chat'));
+  // "Open the panel" from Settings → Advanced: the modal is gone by the time
+  // this runs, so the surface can change without fighting a focus trap.
+  on('surface:open', (s: Surface) => setSurface(s));
   // The file runner streams into the terminal panel; opening it is part of
   // "run this file", not something the user should have to click too.
   on('panel:open', () => {

@@ -9,10 +9,11 @@ import type {
 export type ViewId = 'explorer' | 'search' | 'git' | 'skills' | 'stats';
 
 /** Which panel owns the stage. `editor` is the full-bleed file view that covers
- *  the dock; everything else is a dock panel selected from the right rail. */
-// `bridge` (Web2API) is deliberately not a surface: it lives inside
-// Settings → Advanced, behind a switch that is off until someone turns it on.
-export type Surface = 'chat' | 'review' | 'extensions' | 'editor';
+ *  the dock; everything else is a dock panel selected from the right rail.
+ *  `bridge` (Web2API) is only reachable while the advanced switch is on: the
+ *  rail paints its button from the config, and `setSurface` refuses it
+ *  otherwise. */
+export type Surface = 'chat' | 'review' | 'bridge' | 'extensions' | 'editor';
 
 export interface OpenFile {
   path: string;
