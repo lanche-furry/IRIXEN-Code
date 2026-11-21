@@ -64,7 +64,7 @@ when: 省token, token, 精简, 太长, 冗长, 简短
 | 单文件 URL | `https://example.com/SKILL.md` |
 | Git 仓库 | `https://github.com/user/skill-repo` |
 
-安装后落在 `~/.irixen-code/skills/<id>/`，重启后仍在。
+安装后落在应用目录下的 `skills/<id>/`（默认与 exe 同级，可在「设置 → 高级」改），重启后仍在。
 
 ## 开关与自动匹配
 
@@ -92,7 +92,7 @@ when: 省token, token, 精简, 太长, 冗长, 简短
 ## 调试
 
 ```bash
-# 看当前加载了哪些技能
+# 看当前加载了哪些技能（Windows 下把 ~ 换成应用目录，或用「设置 → 高级 → 打开文件夹」）
 cat ~/.irixen-code/skills/*/SKILL.md
 
 # 改完内置技能后重建

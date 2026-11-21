@@ -24,6 +24,15 @@ This release does two things: it stops installed extensions from vanishing, and 
 - 退回关闭状态会同时停掉正在运行的服务，不留一个面板再也够不着的端口 / Switching it back off also stops a running instance, so no port is left behind that no panel can reach
 - 这一页不再出现在左侧栏与命令面板里，入口只有一个 / It no longer appears in the side rail or the command palette; there is exactly one way in
 
+## 存放位置 / Where add-ons live
+
+- 技能与扩展的默认位置从 `%APPDATA%` 改成**应用安装目录**（exe 旁边）：装在哪就在哪，能找到、能带走 / Skills and extensions now default to the app's install folder (next to the executable) instead of `%APPDATA%` — where you installed it is where they are
+- 「设置 → 高级」新增「插件与技能存放位置」：可以填任意文件夹，可以「浏览…」选，也可以「恢复默认」 / Settings → Advanced gained an add-ons folder field: type any folder, pick one with Browse, or go back with Use default
+- 升级后第一次启动会把旧位置的内容**复制**过去，原件不动；想继续用旧位置，把这一项填回 `%APPDATA%\IRIXEN Code` 即可 / The first start after an upgrade **copies** the old contents over; the originals are left alone. To keep using the old spot, point the field back at `%APPDATA%\IRIXEN Code`
+- 目录不可写时（比如装进了 `Program Files`）自动退回配置目录，设置页显示实际在用的路径 / When the folder is not writable (a `Program Files` install, say) it falls back to the profile folder, and the settings page shows the path actually in use
+- 升级不会清掉这些文件：安装器只删除它自己放进去的东西，删除目录时用的是不带 `/r` 的 `RMDir` / Upgrades do not sweep these files away: the installer deletes only what it put there — its directory removal is `RMDir` without `/r`
+- 改路径后，已经在运行的插件会继续用旧目录，重启应用才完全切换 / Extensions that are already running keep the old folder until the app restarts
+
 ## 安全 / Security
 
 - **打开外链不再经过命令解释器。** 之前的实现是 `cmd /C start "" <url>`，而 `cmd` 连参数里的 `&`、`|`、`^` 都当语法，所以一条 `https://example.com/?a=1&calc` 会在打开网页的同时执行 `calc`——模型回答里任何一个可点链接都可能变成一条命令。现在 URL 作为单个参数交给 `FileProtocolHandler`，没有东西解析它 / **Opening a link no longer goes through a command interpreter.** The old code ran `cmd /C start "" <url>`, and `cmd` treats `&`, `|` and `^` as syntax even inside one argument, so `https://example.com/?a=1&calc` opened the page *and* ran `calc` — which made every clickable link in a model's answer a potential command. The URL is now one argument to `FileProtocolHandler`, and nothing parses it
@@ -37,4 +46,4 @@ This release does two things: it stops installed extensions from vanishing, and 
 
 - 从 Beta 0.4 直接覆盖安装即可，per-user 安装按卸载登记覆盖 / Install straight over Beta 0.4; the per-user installer replaces through its uninstall registry entry
 - 「高级」页的开关状态不继承：升级后一律是关闭，需要时手动打开 / The Advanced switch is not inherited: after an upgrade it is off, and you turn it on when you want it
-- 没有任何配置被删除或迁移 / No configuration is deleted or migrated
+- 配置项只增不删；旧的技能/扩展目录是复制，不是移动，原件仍在 `%APPDATA%\IRIXEN Code` / Config only gains a field; the old skills/extensions folders are copied, not moved, and the originals stay in `%APPDATA%\IRIXEN Code`

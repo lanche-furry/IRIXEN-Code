@@ -208,6 +208,11 @@ export interface AppConfig {
   runners?: Record<string, RunnerConfig>;
   /** Shell for the integrated terminal. Empty = auto-detect. */
   terminal_shell?: string;
+  /**
+   * Where skills and extensions are stored. Empty = next to the executable
+   * (the folder the app was installed into); any other value is used as typed.
+   */
+  addons_root?: string;
   /** Whether the first-run setup wizard has been completed (or skipped). */
   onboarding_completed?: boolean;
 }
@@ -480,6 +485,10 @@ export interface AppInfo {
   /** Machine-readable semver, e.g. "0.1.0-beta.1" — diagnostics only. */
   semver: string;
   config_dir: string;
+  /** Where skills and extensions are read from right now. */
+  addons_dir: string;
+  /** What an empty `addons_root` resolves to — shown as the default. */
+  addons_default: string;
   platform: string;
   workspace: string | null;
 }

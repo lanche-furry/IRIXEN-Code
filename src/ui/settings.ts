@@ -12,6 +12,7 @@ import { isLoopback } from '../core/providers';
 import { ALL_EFFORTS, effortLabel } from '../core/effort';
 import { openOnboarding } from './onboarding';
 import { mountBridge } from './bridge';
+import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import type { AppConfig, AppUpdate, Effort, McpServerConfig, ProviderConfig, Protocol } from '../types';
 
 type Tab = 'providers' | 'agent' | 'appearance' | 'mcp' | 'advanced' | 'about';
@@ -985,7 +986,106 @@ function advancedTab(): HTMLElement {
     tabDisposers.push(dispose);
   }
 
+  wrap.append(addonsCard());
   return wrap;
+}
+
+/** Where user skills and extensions live.
+ *
+ *  Default is the folder the app was installed into; an empty field means
+ *  "default" (the placeholder shows what that resolves to). The write happens
+ *  on blur or Enter, never per keystroke: a debounced save of a half-typed
+ *  `E:\IRI` would create that folder and move the plugin list into it.
+ */
+function addonsCard(): HTMLElement {
+  if (!draft) return h('div');
+  const def = app.info?.addons_default || '';
+
+  const el = h('input', {
+    class: 'adv-path',
+    value: draft.addons_root || '',
+    placeholder: def,
+    spellcheck: 'false',
+  }) as HTMLInputElement;
+
+  const commit = async () => {
+    if (!draft) return;
+    const next = el.value.trim();
+    if (next === (draft.addons_root || '')) return;
+    draft.addons_root = next;
+    await persist();
+    // `persist` leaves `app.config` alone when the backend rejects the path
+    // (no write permission, for instance), so reading it back rolls the field
+    // to whatever is actually in effect.
+    draft.addons_root = app.config?.addons_root ?? '';
+    el.value = draft.addons_root;
+    renderBody();
+  };
+
+  el.addEventListener('blur', () => void commit());
+  el.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') el.blur();
+    if (e.key === 'Escape') {
+      el.value = draft?.addons_root || '';
+      el.blur();
+    }
+  });
+
+  const browse = h('button', {
+    class: 'btn',
+    title: t('adv.addonsPick'),
+    onClick: async () => {
+      const picked = await openDialog({
+        directory: true,
+        multiple: false,
+        title: t('adv.addonsPick'),
+        defaultPath: draft?.addons_root || def || undefined,
+      });
+      if (typeof picked === 'string' && picked) {
+        el.value = picked;
+        await commit();
+      }
+    },
+  }, icon('folderOpen', 13), t('adv.addonsBrowse'));
+
+  const reset = h('button', {
+    class: 'btn',
+    title: t('adv.addonsResetHint'),
+    onClick: async () => {
+      el.value = '';
+      await commit();
+    },
+  }, t('adv.addonsReset'));
+
+  const open = h('button', {
+    class: 'btn',
+    title: t('adv.addonsOpen'),
+    onClick: async () => {
+      try {
+        await api.openAddonsFolder();
+      } catch (e) {
+        toast(errText(e), 'err', 4200);
+      }
+    },
+  }, icon('folderOpen', 13), t('adv.addonsOpen'));
+
+  const effective = draft.addons_root || def || '—';
+
+  return h('div', { class: 'adv-card' },
+    h('div', { class: 'adv-row' },
+      h('div', { class: 'adv-text' },
+        h('div', { class: 'adv-title' }, t('adv.addons')),
+        h('div', { class: 'hint' }, t('adv.addonsHint')),
+      ),
+      open,
+    ),
+    h('div', { class: 'adv-path-row' }, el, browse, reset),
+    h('div', { class: 'hint', style: { marginTop: '6px' } },
+      `${t('adv.addonsCurrent')} ${effective}`),
+    h('div', { class: 'hint' },
+      `${t('adv.addonsDefault')} ${def || '—'}`),
+    h('div', { class: 'hint' }, t('adv.addonsRestart')),
+  );
 }
 
 /** Persist the master switch, then take the listener down if it just closed. */

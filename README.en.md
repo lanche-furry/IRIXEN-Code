@@ -101,6 +101,8 @@ A `.vsix` is just a ZIP, so there is a built-in ZIP reader (central directory + 
 
 DSH-style repos (skill packs with a `SKILL.md`) are recognized as type `dsh` and, on install, automatically find `SKILL.md` recursively and import it into the skill system — extensions work immediately, no second step.
 
+Where they live: in the **app folder** (next to the executable) by default, under `extensions/` and `skills/` — installed with the program, easy to find, easy to carry along. Settings → Advanced → add-ons folder points them anywhere else; clearing it and pressing "use default" goes back. Coming from an older build, the first start copies whatever was in `%APPDATA%\IRIXEN Code` and leaves the originals in place.
+
 > Why GitHub repos go through `codeload.github.com/{owner}/{repo}/zip/HEAD` instead of `git clone`: on Windows `git` uses its own OpenSSL CA bundle and reports `certificate signer not trusted` in environments that do TLS interception, while the app's in-process `reqwest` uses system schannel and the same network works. Non-GitHub repos fall back to `git clone` (with `-c http.sslBackend=schannel`).
 
 **Skills**

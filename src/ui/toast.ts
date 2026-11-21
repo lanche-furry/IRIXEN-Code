@@ -405,6 +405,7 @@ export async function buildRunLog(): Promise<string> {
       `semver: ${info.semver || ''}`,
       `platform: ${info.platform || ''}`,
       `config: ${info.config_dir || ''}`,
+      `addons: ${info.addons_dir || ''}`,
       `workspace: ${info.workspace || ''}`,
     );
   } catch {

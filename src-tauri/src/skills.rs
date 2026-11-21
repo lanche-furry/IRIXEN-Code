@@ -94,6 +94,40 @@ pub struct SkillRegistry {
     skills: std::sync::Mutex<Vec<Skill>>,
 }
 
+/// User skills on disk: one folder (or `<name>.md`) per skill.
+///
+/// Split out of `load` so `rescan` reads the folder the same way — two slightly
+/// different scanners would mean a skill that appears after install but
+/// disappears after restart.
+fn scan_user_skills(enabled_ids: &[String]) -> Vec<Skill> {
+    let mut out = Vec::new();
+    let dir = crate::config::skills_dir();
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return out;
+    };
+    for entry in entries.flatten() {
+        let folder = entry.path();
+        let md = if folder.is_dir() {
+            folder.join("SKILL.md")
+        } else {
+            folder.clone()
+        };
+        if !md.exists() {
+            continue;
+        }
+        let id = folder
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default();
+        if let Ok(text) = std::fs::read_to_string(&md) {
+            let mut s = skill_from_text(&id, &text, false, Some(md.clone()));
+            s.enabled = enabled_ids.iter().any(|e| e == &id);
+            out.push(s);
+        }
+    }
+    out
+}
+
 impl SkillRegistry {
     pub fn load(enabled_ids: &[String], auto_match: bool) -> Self {
         let mut skills: Vec<Skill> = Vec::new();
@@ -102,34 +136,28 @@ impl SkillRegistry {
             s.enabled = enabled_ids.is_empty() || enabled_ids.iter().any(|e| e == id);
             skills.push(s);
         }
-        // user skills
-        let dir = crate::config::skills_dir();
-        if let Ok(entries) = std::fs::read_dir(&dir) {
-            for entry in entries.flatten() {
-                let folder = entry.path();
-                let md = if folder.is_dir() {
-                    folder.join("SKILL.md")
-                } else {
-                    folder.clone()
-                };
-                if !md.exists() {
-                    continue;
-                }
-                let id = folder
-                    .file_stem()
-                    .map(|s| s.to_string_lossy().to_string())
-                    .unwrap_or_default();
-                if let Ok(text) = std::fs::read_to_string(&md) {
-                    let mut s = skill_from_text(&id, &text, false, Some(md.clone()));
-                    s.enabled = enabled_ids.iter().any(|e| e == &id);
-                    skills.push(s);
-                }
-            }
-        }
+        skills.extend(scan_user_skills(enabled_ids));
         let _ = auto_match;
         SkillRegistry {
             skills: std::sync::Mutex::new(skills),
         }
+    }
+
+    /// Re-read the user skills from disk, keeping the built-ins and whatever
+    /// was enabled.
+    ///
+    /// Needed because the folder is a setting: after it changes, the registry
+    /// still holds the list it booted with, and the panel would show skills
+    /// that are no longer on disk (or miss the ones that are).
+    pub fn rescan(&self) {
+        let mut list = crate::util::lock(&self.skills);
+        let enabled_ids: Vec<String> = list
+            .iter()
+            .filter(|s| !s.builtin && s.enabled)
+            .map(|s| s.id.clone())
+            .collect();
+        list.retain(|s| s.builtin);
+        list.extend(scan_user_skills(&enabled_ids));
     }
 
     pub fn list(&self) -> Vec<Skill> {

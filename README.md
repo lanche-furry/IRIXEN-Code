@@ -101,6 +101,8 @@ IRIXEN Code 由两部分组成：
 
 DSH 风格的仓库（带 `SKILL.md` 的技能包）会被识别为 `dsh` 类型，安装时自动递归查找 `SKILL.md` 并导入技能系统——扩展装完即生效，不用二次操作。
 
+装在哪儿：默认就在**应用目录**（exe 旁边）的 `extensions/` 与 `skills/`，和程序装在一起，找得到也能整包带走。「设置 → 高级」里的「插件与技能存放位置」可以改成任意文件夹，清空并「恢复默认」就回到应用目录；从旧版本升上来的，第一次启动会把 `%APPDATA%\IRIXEN Code` 里的内容复制过来，原件不动。
+
 > 为什么 GitHub 仓库走 `codeload.github.com/{owner}/{repo}/zip/HEAD` 而不是 `git clone`：Windows 上 `git` 用自己的 OpenSSL CA bundle，在会做 TLS 拦截的环境里会报 `certificate signer not trusted`；而应用内的 `reqwest` 走系统 schannel，同一条网络是通的。非 GitHub 的仓库才回退到 `git clone`（并加 `-c http.sslBackend=schannel`）。
 
 **技能（Skills）**

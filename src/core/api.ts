@@ -24,6 +24,9 @@ export const api = {
   saveConfig: (config: AppConfig) => invoke<AppConfig>('save_config', { config }),
   configReset: () => invoke<AppConfig>('config_reset'),
   appInfo: () => invoke<AppInfo>('app_info'),
+  /** Reveal the skills/extensions folder; the path comes from config, never
+   *  from the renderer. */
+  openAddonsFolder: () => invoke<string>('open_addons_folder'),
   appCheckUpdate: (force = false) => invoke<AppUpdate>('app_check_update', { force }),
   downloadUpdate: () => invoke<Downloaded>('app_download_update'),
   // Returns only after the installer is running; the app is gone by the time

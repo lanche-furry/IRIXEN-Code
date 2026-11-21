@@ -35,6 +35,23 @@ pub fn save_config(state: State<'_, AppState>, mut config: AppConfig) -> Result<
     // port/key back into the live config.
     config.sync_web2api_provider();
     config.sanitize_active();
+    // Where skills/extensions live may have been edited. Check it *before* the
+    // write: a folder that cannot be created would make this setting look
+    // saved while every later install fails against a path nobody can connect
+    // to the field they just typed in.
+    let old_root = crate::config::addons_root();
+    let new_root = crate::config::resolve_addons_root(&config.addons_root)
+        .unwrap_or_else(crate::config::default_addons_root);
+    if new_root != old_root {
+        // A relative path would be resolved against whatever directory the
+        // process happens to have, which differs between launch methods. Say so
+        // instead of writing plugins into `<cwd>/plugins`.
+        if new_root.is_relative() {
+            return Err(format!("请填写完整路径：{}", new_root.display()));
+        }
+        crate::config::prepare_addons(&new_root)
+            .map_err(|e| format!("{} 不可用：{e}", new_root.display()))?;
+    }
     // Write first, swap the live config second. If the disk write fails, memory
     // must not hold a config that will not survive a restart — that divergence
     // reads as "the key I typed works until I relaunch".
@@ -48,6 +65,12 @@ pub fn save_config(state: State<'_, AppState>, mut config: AppConfig) -> Result<
         if s.enabled != want {
             state.skills.set_enabled(&s.id, want);
         }
+    }
+    // The skill registry keeps the list it booted with; a new folder means a
+    // new list. (Running extension hosts keep their own working directory
+    // until they restart — the panel says so.)
+    if new_root != old_root {
+        state.skills.rescan();
     }
     Ok(config)
 }
@@ -81,10 +104,12 @@ pub fn config_reset(state: State<'_, AppState>) -> Result<AppConfig, String> {
         let mut cfg = crate::util::lock(&state.config);
         *cfg = fresh.clone();
     }
+    // Back to the default addons folder and a clean skill list: re-read from
+    // the folder the default points at, then leave built-ins on (which is what
+    // "no enabled ids" means on a fresh profile) and user skills off.
+    state.skills.rescan();
     for s in state.skills.list() {
-        if s.enabled {
-            state.skills.set_enabled(&s.id, false);
-        }
+        state.skills.set_enabled(&s.id, s.builtin);
     }
     Ok(fresh)
 }
@@ -96,6 +121,11 @@ pub struct AppInfo {
     /// Machine-readable package version for diagnostics, e.g. "0.1.0-beta.1".
     pub semver: String,
     pub config_dir: String,
+    /// Where skills and extensions are read from right now.
+    pub addons_dir: String,
+    /// What "default" resolves to, so Settings can show it instead of making
+    /// the user guess where an empty field points.
+    pub addons_default: String,
     pub platform: String,
     pub workspace: Option<String>,
 }
@@ -106,9 +136,43 @@ pub fn app_info(state: State<'_, AppState>) -> AppInfo {
         version: crate::update::DISPLAY_VERSION.to_string(),
         semver: env!("CARGO_PKG_VERSION").to_string(),
         config_dir: crate::config::base_dir().to_string_lossy().to_string(),
+        addons_dir: crate::config::addons_root().to_string_lossy().to_string(),
+        addons_default: crate::config::default_addons_root()
+            .to_string_lossy()
+            .to_string(),
         platform: std::env::consts::OS.to_string(),
         workspace: crate::util::lock(&state.config).workspace.clone(),
     }
+}
+
+/// Open the addons folder in the OS file manager.
+///
+/// Only that folder: the path comes from config, not from the renderer, so a
+/// compromised page cannot turn this into "open anything on disk".
+#[tauri::command]
+pub fn open_addons_folder() -> Result<String, String> {
+    let dir = crate::config::addons_root();
+    std::fs::create_dir_all(&dir).map_err(|e| format!("创建目录失败：{e}"))?;
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        std::process::Command::new("explorer")
+            .arg(&dir)
+            .creation_flags(0x0800_0000)
+            .spawn()
+            .map_err(|e| format!("打开文件夹失败：{e}"))?;
+    }
+    #[cfg(target_os = "macos")]
+    std::process::Command::new("open")
+        .arg(&dir)
+        .spawn()
+        .map_err(|e| format!("打开文件夹失败：{e}"))?;
+    #[cfg(all(unix, not(target_os = "macos")))]
+    std::process::Command::new("xdg-open")
+        .arg(&dir)
+        .spawn()
+        .map_err(|e| format!("打开文件夹失败：{e}"))?;
+    Ok(dir.to_string_lossy().to_string())
 }
 
 #[tauri::command]

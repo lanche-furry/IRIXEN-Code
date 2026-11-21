@@ -200,8 +200,10 @@ Goal / Decisions / Files / State / Pending
 
 ```
 src-tauri/src/skills/builtin/*.md     ← include_str! 编译进二进制
-~/.irixen-code/skills/<id>/SKILL.md   ← 用户安装
+<addons>/skills/<id>/SKILL.md         ← 用户安装
 ```
+
+`<addons>` 默认就是应用安装目录（exe 所在文件夹），可在「设置 → 高级」改成任意文件夹；`IRIXEN_HOME` 与 debug 构建仍然回到配置目录，免得测试和 `cargo build` 往装好的程序里写东西。扩展目录同理，是 `<addons>/extensions/`。
 
 frontmatter 解析是手写的（不引 YAML 库）：
 

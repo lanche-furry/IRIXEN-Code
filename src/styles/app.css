@@ -2677,6 +2677,22 @@
   line-height: 1.55;
 }
 
+/* Path row inside an advanced card: the field takes the width, the buttons
+   stay put so "浏览…" does not slide around as the path gets longer. */
+.adv-path-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.adv-path-row .btn { flex: 0 0 auto; white-space: nowrap; }
+.adv-path {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
 /* The bridge panel was laid out for a dock that owns the full pane height.
    Inside the modal it has to grow with its content and scroll with the tab. */
 .bridge-host .bridge {

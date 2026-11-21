@@ -100,6 +100,11 @@ pub fn run() {
             // auto-configured providers also exist in config.json and survive
             // the next process instead of being re-added on every boot.
             let _ = cfg.save();
+            // Skills and extensions live next to the executable by default
+            // (Settings → Advanced can point them elsewhere). Create the
+            // folders and pull in anything a previous build left in the profile
+            // folder *before* the registry scans them.
+            crate::config::ensure_addons();
             let config = Arc::new(Mutex::new(cfg.clone()));
             let skills = Arc::new(SkillRegistry::load(
                 &cfg.skills.enabled,
@@ -185,6 +190,7 @@ pub fn run() {
             commands::save_config,
             commands::config_reset,
             commands::app_info,
+            commands::open_addons_folder,
             commands::app_check_update,
             commands::app_download_update,
             commands::app_apply_update,

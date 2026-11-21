@@ -199,8 +199,10 @@ When compression finishes it emits `compressed { tokens_before, tokens_after, to
 
 ```
 src-tauri/src/skills/builtin/*.md     <- include_str! into the binary
-~/.irixen-code/skills/<id>/SKILL.md   <- user installs
+<addons>/skills/<id>/SKILL.md         <- user installs
 ```
+
+`<addons>` defaults to the folder the app is installed into (the one holding the executable) and can be pointed anywhere from Settings → Advanced. `IRIXEN_HOME` and debug builds still resolve to the config directory, so tests and `cargo build` never write into an installed copy. Extensions live in `<addons>/extensions/` by the same rule.
 
 Frontmatter parsing is hand-written (no YAML crate):
 

@@ -64,7 +64,7 @@ Three sources, all pasted into the input box on the **Skills** panel:
 | Single-file URL | `https://example.com/SKILL.md` |
 | Git repository | `https://github.com/user/skill-repo` |
 
-Installs land in `~/.irixen-code/skills/<id>/` and survive a restart.
+Installs land in `skills/<id>/` under the app folder (next to the executable by default; Settings → Advanced moves it) and survive a restart.
 
 ## Toggles and auto-matching
 
@@ -92,7 +92,7 @@ Installs land in `~/.irixen-code/skills/<id>/` and survive a restart.
 ## Debugging
 
 ```bash
-# see which skills are currently loaded
+# see which skills are currently loaded (on Windows use the app folder — or Settings → Advanced → Open folder)
 cat ~/.irixen-code/skills/*/SKILL.md
 
 # rebuild after changing a built-in skill

@@ -688,6 +688,12 @@ pub struct AppConfig {
     /// so a non-standard install still works.
     #[serde(default)]
     pub terminal_shell: String,
+    /// Where user-installed skills and extensions live. Empty = next to the
+    /// executable (the folder the app was installed into). See `addons_root()`
+    /// for why the app folder is the default and what happens when it is not
+    /// writable.
+    #[serde(default)]
+    pub addons_root: String,
     /// First-run setup wizard: `false` on a fresh profile, flipped to `true`
     /// once the user finishes (or skips) it. `#[serde(default)]` means older
     /// config files are treated as "not yet completed" without a migration.
@@ -819,6 +825,7 @@ impl Default for AppConfig {
             editor_format_on_save: false,
             runners: std::collections::BTreeMap::new(),
             terminal_shell: String::new(),
+            addons_root: String::new(),
             onboarding_completed: false,
         }
     }
@@ -832,11 +839,8 @@ impl Default for AppConfig {
 /// finishes the first-run wizard silently marks the *installed* app as set up
 /// and its wizard never comes back.
 pub fn base_dir() -> PathBuf {
-    if let Some(home) = std::env::var_os("IRIXEN_HOME") {
-        let p = PathBuf::from(home);
-        if !p.as_os_str().is_empty() {
-            return p;
-        }
+    if let Some(p) = env_home() {
+        return p;
     }
     dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
@@ -860,12 +864,205 @@ pub fn config_path() -> PathBuf {
 // leave `%APPDATA%\IRIXEN Code` alone; a clean start is an explicit
 // `rm -r %APPDATA%\IRIXEN Code` or the "restore defaults" button.
 
+/// `IRIXEN_HOME` when it is set to a non-empty path.
+fn env_home() -> Option<PathBuf> {
+    let home = std::env::var_os("IRIXEN_HOME")?;
+    let p = PathBuf::from(home);
+    if p.as_os_str().is_empty() {
+        None
+    } else {
+        Some(p)
+    }
+}
+
+/// The folder this binary was installed into (`…\IRIXEN Code`).
+pub fn app_dir() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    exe.parent().map(|p| p.to_path_buf())
+}
+
+/// Can we actually write here? `create_dir_all` succeeds on a directory that
+/// already exists even when it is read-only, so the only reliable answer is to
+/// put a byte on disk and take it back.
+pub fn writable(dir: &std::path::Path) -> bool {
+    if std::fs::create_dir_all(dir).is_err() {
+        return false;
+    }
+    let probe = dir.join(".irixen-write-probe");
+    match std::fs::write(&probe, b"ok") {
+        Ok(_) => {
+            let _ = std::fs::remove_file(&probe);
+            true
+        }
+        Err(_) => false,
+    }
+}
+
+/// Where skills and extensions go by default: **next to the executable**.
+///
+/// Why there instead of `%APPDATA%`: the profile folder is the app's private
+/// scratch space, and it is the folder the Tauri uninstaller is allowed to
+/// delete (`RmDir /r "$APPDATA\<bundle id>"`) when the user ticks "remove app
+/// data". A portable-ish install should keep the user's plugins where the user
+/// put the app — and Tauri's NSIS uninstaller only deletes files it installed
+/// itself (`RMDir` without `/r`), so an upgrade leaves them alone.
+///
+/// Three exceptions, in order:
+///   1. `IRIXEN_HOME` wins outright — test and probe runs must not write into
+///      the installed app's folder.
+///   2. A debug build runs from `target/debug`; putting user content there
+///      would make every `cargo build` a change to the user's plugin list.
+///   3. A read-only install dir (per-machine install into `Program Files`)
+///      falls back to the profile folder, because a path that cannot be
+///      written is not a default, it is a trap.
+pub fn default_addons_root() -> PathBuf {
+    if env_home().is_some() {
+        return base_dir();
+    }
+    // Resolved once per process: the answer costs a write probe, and every
+    // settings keystroke saves the config and asks for it again.
+    DEFAULT_ADDONS_ROOT
+        .get_or_init(|| {
+            if cfg!(debug_assertions) {
+                return base_dir();
+            }
+            match app_dir() {
+                Some(dir) if writable(&dir) => dir,
+                _ => base_dir(),
+            }
+        })
+        .clone()
+}
+
+static DEFAULT_ADDONS_ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// The configured override, if any. `None` means "use the default".
+pub fn resolve_addons_root(configured: &str) -> Option<PathBuf> {
+    let raw = configured.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    let plain = crate::util::plain_path(raw);
+    Some(PathBuf::from(plain))
+}
+
+/// Live answer, seeded from `config.json` by `AppConfig::load()`/`save()`.
+/// Held in a process-wide slot because half the call sites (`skills_dir()`,
+/// `extensions::dir()`) predate the setting and thread no config through.
+static ADDONS_ROOT: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
+
+pub fn set_addons_root(configured: Option<PathBuf>) {
+    *crate::util::lock(&ADDONS_ROOT) = configured;
+}
+
+pub fn addons_root() -> PathBuf {
+    match crate::util::lock(&ADDONS_ROOT).clone() {
+        Some(p) => p,
+        None => default_addons_root(),
+    }
+}
+
+/// `(skills, extensions)` for a given root — pure, so the layout is testable
+/// without touching the process-wide slot.
+pub fn addons_paths(root: &std::path::Path) -> (PathBuf, PathBuf) {
+    (root.join("skills"), root.join("extensions"))
+}
+
+/// Create the root and both subfolders, and make sure they are writable.
+pub fn prepare_addons(root: &std::path::Path) -> std::io::Result<()> {
+    let (skills, extensions) = addons_paths(root);
+    std::fs::create_dir_all(&skills)?;
+    std::fs::create_dir_all(&extensions)?;
+    if !writable(&skills) || !writable(&extensions) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "没有写入权限",
+        ));
+    }
+    Ok(())
+}
+
+/// Copy `from` into `to` without ever deleting the source.
+fn copy_tree(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<usize> {
+    let mut copied = 0usize;
+    std::fs::create_dir_all(to)?;
+    for entry in std::fs::read_dir(from)?.flatten() {
+        let src = entry.path();
+        let dst = to.join(entry.file_name());
+        if src.is_dir() {
+            copied += copy_tree(&src, &dst)?;
+        } else if std::fs::copy(&src, &dst).is_ok() {
+            copied += 1;
+        }
+    }
+    Ok(copied)
+}
+
+/// First start after the default moved out of the profile folder: bring the
+/// skills and extensions that are already there along.
+///
+/// A copy, not a move. The originals stay where they are, so a user who does
+/// not want plugins next to the executable can point the setting back at
+/// `%APPDATA%\IRIXEN Code` and find everything untouched. Runs only when the
+/// effective root is not the profile folder and the target folder is still
+/// empty, which makes it a no-op on every start after the first.
+pub fn adopt_legacy_addons() {
+    let root = addons_root();
+    if root == base_dir() {
+        return;
+    }
+    // One shot per root. Without the marker, a user who deliberately deleted
+    // every extension would get them all back on the next start — the folder
+    // would look empty and the copy would run again.
+    let marker = root.join(".irixen-adopted");
+    if marker.exists() {
+        return;
+    }
+    let (skills, extensions) = addons_paths(&root);
+    for (name, legacy) in [
+        ("skills", base_dir().join("skills")),
+        ("extensions", base_dir().join("extensions")),
+    ] {
+        let target = if name == "skills" { &skills } else { &extensions };
+        if !legacy.is_dir() {
+            continue;
+        }
+        let empty = std::fs::read_dir(target)
+            .map(|mut it| it.next().is_none())
+            .unwrap_or(true);
+        if !empty {
+            continue;
+        }
+        match copy_tree(&legacy, target) {
+            Ok(0) => {}
+            Ok(n) => eprintln!(
+                "[irixen] copied {n} file(s) from {} to the new {name} folder",
+                legacy.display()
+            ),
+            Err(e) => eprintln!("[irixen] could not adopt {}: {e}", legacy.display()),
+        }
+    }
+    let _ = std::fs::write(&marker, b"1");
+}
+
+/// Startup: make the folders exist and pull old content in. Never fatal — an
+/// unusable folder must not stop the app from opening; the settings page says
+/// what happened.
+pub fn ensure_addons() {
+    let root = addons_root();
+    if let Err(e) = prepare_addons(&root) {
+        eprintln!("[irixen] addons folder {} is not usable: {e}", root.display());
+        return;
+    }
+    adopt_legacy_addons();
+}
+
 pub fn skills_dir() -> PathBuf {
-    base_dir().join("skills")
+    addons_paths(&addons_root()).0
 }
 
 pub fn extensions_dir() -> PathBuf {
-    base_dir().join("extensions")
+    addons_paths(&addons_root()).1
 }
 
 pub fn sessions_dir() -> PathBuf {
@@ -904,6 +1101,13 @@ impl AppConfig {
         "light"
     }
 
+    /// Point the process at the configured addons folder (or back at the
+    /// default when the field is empty). Called on load and on every save, so a
+    /// change in Settings takes effect without a restart.
+    pub fn apply_addons_root(&self) {
+        set_addons_root(resolve_addons_root(&self.addons_root));
+    }
+
     /// Rewrite stored paths into the ordinary (non-verbatim) Windows form.
     ///
     /// `canonicalize()` used to be the only way the workspace was recorded, so
@@ -926,7 +1130,7 @@ impl AppConfig {
 
     pub fn load() -> Self {
         let path = config_path();
-        match std::fs::read_to_string(&path) {
+        let cfg = match std::fs::read_to_string(&path) {
             Ok(text) => match serde_json::from_str::<AppConfig>(&text) {
                 Ok(mut cfg) => {
                     cfg.version = CONFIG_VERSION;
@@ -948,7 +1152,11 @@ impl AppConfig {
                 }
             },
             Err(_) => AppConfig::default(),
-        }
+        };
+        // Resolve the addons folder before anything scans it: `setup` builds the
+        // skill registry and the extension host right after this returns.
+        cfg.apply_addons_root();
+        cfg
     }
 
     pub fn save(&self) -> anyhow::Result<()> {
@@ -957,6 +1165,9 @@ impl AppConfig {
         let text = serde_json::to_string_pretty(self)?;
         let path = config_path();
         std::fs::write(&path, text)?;
+        // The folder may have been edited in Settings since the last launch;
+        // the scanners read the slot, not this struct.
+        self.apply_addons_root();
         // `config.json` holds provider API keys and any session cookies the
         // user typed in. On Unix the default umask makes a fresh file
         // world-readable, which is not what "my keys" should mean. Windows has
@@ -1088,4 +1299,69 @@ pub fn is_loopback(base_url: &str) -> bool {
         || u.contains("://192.168.")
         || u.starts_with("localhost")
         || u.starts_with("127.")
+}
+
+#[cfg(test)]
+mod addons_tests {
+    use super::*;
+
+    fn temp(name: &str) -> PathBuf {
+        let p = std::env::temp_dir().join(format!("irixen-addons-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&p);
+        std::fs::create_dir_all(&p).unwrap();
+        p
+    }
+
+    #[test]
+    fn an_empty_setting_means_the_app_folder() {
+        assert!(resolve_addons_root("").is_none());
+        assert!(resolve_addons_root("   \t ").is_none());
+    }
+
+    #[test]
+    fn a_typed_path_is_taken_verbatim_minus_padding() {
+        let got = resolve_addons_root("  /tmp/irixen addons  ");
+        assert_eq!(got, Some(PathBuf::from("/tmp/irixen addons")));
+    }
+
+    #[test]
+    fn both_kinds_live_under_one_root() {
+        let (skills, extensions) = addons_paths(std::path::Path::new("/tmp/x"));
+        assert_eq!(skills, PathBuf::from("/tmp/x/skills"));
+        assert_eq!(extensions, PathBuf::from("/tmp/x/extensions"));
+    }
+
+    #[test]
+    fn preparing_creates_both_folders() {
+        let root = temp("prepare");
+        prepare_addons(&root).unwrap();
+        assert!(root.join("skills").is_dir());
+        assert!(root.join("extensions").is_dir());
+        // Nothing left behind by the write probe.
+        assert!(!root.join("skills").join(".irixen-write-probe").exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_root_that_cannot_be_created_is_an_error_not_a_silent_fallback() {
+        let root = temp("blocked");
+        let file = root.join("not-a-folder");
+        std::fs::write(&file, b"x").unwrap();
+        assert!(prepare_addons(&file).is_err());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn adopting_copies_without_moving() {
+        let legacy = temp("legacy");
+        let target = temp("target");
+        std::fs::create_dir_all(legacy.join("ext/pub.ext")).unwrap();
+        std::fs::write(legacy.join("ext/pub.ext/package.json"), b"{}").unwrap();
+        let n = copy_tree(&legacy.join("ext"), &target.join("ext")).unwrap();
+        assert_eq!(n, 1);
+        assert!(legacy.join("ext/pub.ext/package.json").exists(), "source must survive");
+        assert!(target.join("ext/pub.ext/package.json").exists());
+        let _ = std::fs::remove_dir_all(&legacy);
+        let _ = std::fs::remove_dir_all(&target);
+    }
 }

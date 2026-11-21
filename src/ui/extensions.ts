@@ -71,6 +71,11 @@ export function mountExtensions(dock: HTMLElement) {
     h('div', { class: 'spacer', style: { flex: '1' } }),
     h('button', {
       class: 'icon-btn',
+      title: t('adv.addonsOpen'),
+      onClick: () => void api.openAddonsFolder().catch(() => {}),
+    }, icon('folderOpen', 13)),
+    h('button', {
+      class: 'icon-btn',
       title: t('ext.checkUpdates'),
       onClick: () => void refreshExtensions(true),
     }, icon('refresh', 13)),

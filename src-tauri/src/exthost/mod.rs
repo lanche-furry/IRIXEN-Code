@@ -1156,11 +1156,12 @@ fn write_bootstrap(entry: &Path) -> Result<PathBuf, String> {
         std::fs::write(&path, BOOTSTRAP).map_err(|e| format!("写入宿主脚本失败：{e}"))?;
     }
 
-    // `<config>/node_modules/vscode` makes `import 'vscode'` (ESM) resolve the
+    // `<addons>/node_modules/vscode` makes `import 'vscode'` (ESM) resolve the
     // same singleton the CommonJS hook returns: the loader walks up from
-    // `<config>/extensions/<id>/` and finds it. The named re-exports below are
-    // what lets `import { commands } from 'vscode'` work under cjs-module-lexer.
-    let shim_dir = crate::config::base_dir().join("node_modules").join("vscode");
+    // `<addons>/extensions/<id>/` and finds it. It has to sit next to the
+    // extensions folder, not in the config folder, because the addons root is a
+    // setting and the two can point at different drives.
+    let shim_dir = crate::config::addons_root().join("node_modules").join("vscode");
     let _ = std::fs::create_dir_all(&shim_dir);
     let pkg = r#"{"name":"vscode","version":"1.101.0","main":"index.js"}"#;
 
