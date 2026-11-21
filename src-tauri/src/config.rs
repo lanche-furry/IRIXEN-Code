@@ -2,7 +2,7 @@
 
 use crate::agent::types::Effort;
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 pub const APP_DIR_NAME: &str = "IRIXEN Code";
 pub const CONFIG_VERSION: u32 = 1;
