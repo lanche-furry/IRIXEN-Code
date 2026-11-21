@@ -337,9 +337,9 @@ pub fn run() {
         // whole point of Web2API. Hide it instead so the session stays logged
         // in and the next request needs no manual "打开官网" click.
         //
-        // The main window is the other close that means "hide": with
-        // `close_to_tray` on (the default), the titlebar's X parks the app in
-        // the tray instead of killing an agent turn or a running build. The
+        // The main window is the other close that means "hide": once the
+        // first-close question has been answered, `close_to_tray` decides
+        // whether the X parks the app in the tray or ends the process. The
         // setting is read per event, so flipping it applies immediately, and
         // the tray must actually exist — otherwise the window would vanish
         // with nothing to bring it back.
