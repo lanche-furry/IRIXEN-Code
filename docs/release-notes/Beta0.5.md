@@ -62,6 +62,6 @@ This installer *is* Beta 0.5, and it contains everything below. Three things mat
 - 从 Beta 0.4 或任一 Beta 0.5 构建直接覆盖安装即可，per-user 安装按卸载登记覆盖 / Install straight over Beta 0.4 or any Beta 0.5 build; the per-user installer replaces through its uninstall registry entry
 - 「高级」页的开关状态不继承：升级后一律是关闭，需要时手动打开 / The Advanced switch is not inherited: after an upgrade it is off, and you turn it on when you want it
 - 上一版已经在高级页里打开过开关的，升级后同样回到关闭，且「完全访问」需要重新确认 / Anyone who had turned the switch on in the previous build also starts off again, and full access has to be confirmed afresh
-- 关闭窗口的行为是新增配置项，升级后默认是"最小化到托盘"；不想要就到高级页改成"直接退出" / The close-button behaviour is a new setting and defaults to "minimize to tray" after an upgrade; change it to "quit" in Advanced if you do not want it
+- 关闭窗口的行为是新增配置项，第一次点 X 会先问一次并记住答案；升级后同样会问，也可以在高级页直接选好 / The close-button behaviour is a new setting: the first X asks once and remembers; upgrades ask too, or you can pick in Advanced up front
 - Linux 的 deb 新增 `libayatana-appindicator3-1` 依赖，托盘需要它；装过旧版的机器升级时由包管理器一并装上 / The Linux deb now depends on `libayatana-appindicator3-1`, which the tray needs; the package manager installs it with the upgrade
 - 配置项只增不删；旧的技能/扩展目录是复制，不是移动，原件仍在 `%APPDATA%\IRIXEN Code` / Config only gains fields; the old skills/extensions folders are copied, not moved, and the originals stay in `%APPDATA%\IRIXEN Code`
