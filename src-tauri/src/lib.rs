@@ -14,6 +14,7 @@ pub mod single_instance;
 pub mod skills;
 pub mod state;
 pub mod terminal;
+pub mod tray;
 pub mod update;
 pub mod util;
 pub mod websession;
@@ -185,6 +186,14 @@ pub fn run() {
                 }
             });
 
+            // Tray icon: the way back to a window that was closed into the tray,
+            // and the only place a real quit is reachable when
+            // `close_to_tray` is on. A failure here is not fatal — the close
+            // handler checks `tray::ready()` and keeps the old behaviour.
+            if let Err(e) = tray::install(&handle, &cfg.language) {
+                eprintln!("[irixen] tray icon unavailable: {e}");
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -324,11 +333,36 @@ pub fn run() {
         // A closed vendor window must NOT be destroyed: its cookie jar is the
         // whole point of Web2API. Hide it instead so the session stays logged
         // in and the next request needs no manual "打开官网" click.
+        //
+        // The main window is the other close that means "hide": with
+        // `close_to_tray` on (the default), the titlebar's X parks the app in
+        // the tray instead of killing an agent turn or a running build. The
+        // setting is read per event, so flipping it applies immediately, and
+        // the tray must actually exist — otherwise the window would vanish
+        // with nothing to bring it back.
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 if window.label().starts_with("web2api-") {
                     api.prevent_close();
                     let _ = window.hide();
+                    return;
+                }
+                if window.label() == "main" {
+                    let hide = window
+                        .app_handle()
+                        .try_state::<AppState>()
+                        .map(|st| crate::util::lock(&st.config).close_to_tray)
+                        .unwrap_or(false);
+                    if hide && tray::ready() {
+                        api.prevent_close();
+                        let _ = window.hide();
+                    } else {
+                        // "Quit on close" has to mean the process, not just this
+                        // window: a bridge session leaves hidden WebView
+                        // windows behind, and those would keep the app alive
+                        // with nothing on screen to quit it from.
+                        window.app_handle().exit(0);
+                    }
                 }
             }
         })

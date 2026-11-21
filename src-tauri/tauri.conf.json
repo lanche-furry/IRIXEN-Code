@@ -59,7 +59,8 @@
     "linux": {
       "deb": {
         "depends": [
-          "libssl3"
+          "libssl3",
+          "libayatana-appindicator3-1"
         ]
       }
     },

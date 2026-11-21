@@ -43,6 +43,8 @@ The startup path is deliberately as short as possible: **no splash window, no in
 
 Window visibility depends on no IPC at all, so even if the front end crashes during startup the user sees a visible window plus a devtools error — never "a process is running with no window".
 
+**The close button does not quit by default.** The titlebar's × arrives as `CloseRequested`; `lib.rs` reads `close_to_tray` there and, when it is true, calls `prevent_close` + `hide()`. The process, a running agent turn, a build in the terminal and the extension hosts all stay where they are, and the tray icon (`tray.rs`) is both the way back and the only place a real quit lives (tray menu → Quit; left click restores the window). With the setting off, close calls `exit(0)` outright — not just this window, because an open bridge session keeps hidden WebView windows alive and closing only the main window would leave a process running with no UI. When no tray could be built (a Linux desktop with no StatusNotifier host), `tray::ready()` is false and close falls back to ending the process rather than hiding the window into an icon that is not there.
+
 ## 2. One abstraction over three protocols
 
 ```rust

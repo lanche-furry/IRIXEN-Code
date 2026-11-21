@@ -1,8 +1,23 @@
-# IRIXEN Code 0.5.0-beta.1
+# IRIXEN Code 0.5.0-beta.2
 
-这一版做两件事：让装进来的插件不再"人间蒸发"，以及把需要用户本人决定的能力从默认路径上挪开。安全审查顺带修掉了两个真问题。
+这个安装包就是 Beta 0.5 本身，内容为下面全部。重点是三件事：插件不再因为一个字段就整包消失，需要用户本人拍板的能力收进「设置 → 高级」并由开关决定入口，以及一个能让窗口关掉之后进程还活着的托盘图标。
 
-This release does two things: it stops installed extensions from vanishing, and it moves capabilities that are the user's decision to make off the default path. A security pass removed two real problems along the way.
+This installer *is* Beta 0.5, and it contains everything below. Three things matter here: extensions no longer vanish over a single manifest field, capabilities that are the user's call moved into Settings → Advanced where a switch decides whether the entry exists at all, and a tray icon that lets the process outlive its window.
+
+## 这一版的改动 / What changed in this cut
+
+- 高级页的开关打开后，右侧栏出现对应入口；关掉就消失，不留一个点了没反应的图标 / Turning the switch on in Advanced puts its entry in the right rail; turning it off takes the entry away instead of leaving a button that does nothing
+- 命令面板里同步出现同名命令，同样受这个开关控制 / The command palette gains the same command under the same switch
+- 高级页不再内嵌整个面板，只留开关、风险说明和「打开面板」 / Advanced no longer embeds the whole panel: the switch, the warning and an "Open panel" button stay
+- 「高级」这一页的图标从插头换成齿轮——插头是那个功能的图标，功能没开时不该挂在设置边上 / The Advanced tab wears a gear instead of a plug: the plug is that feature's icon, and it has no business sitting in the settings rail while the feature is off
+- **开关只负责显示，不负责开门。** 面板顶部有一道「完全访问」确认，确认之前启动按钮是灰的 / **The switch shows the panel; it does not open the door.** A full-access confirmation sits at the top of the panel, and the start button stays disabled until it is given
+- 那张确认卡只留标题和按钮，说明段落去掉：要说的风险在高级页的开关下面已经写过一次 / That confirmation card is its title and its button now — the paragraph is gone, because the risk is already spelled out under the switch in Advanced
+- 关掉开关会撤销这条确认并立即关闭端口，重新打开需要再确认一次 / Switching off revokes the confirmation and closes the port at once; switching back on asks again
+- 配置文件里写着 `full_access: true` 而开关是关的，一律按未确认处理，不会继承 / A config file that says `full_access: true` while the switch is off is treated as unconfirmed and is never inherited
+- **新增托盘图标**：左键还原窗口，右键菜单是「显示主窗口」和「退出」 / **New tray icon**: left click restores the window; the right-click menu holds "Show window" and "Quit"
+- **关闭窗口默认改成最小化到托盘**，进程、正在跑的 Agent 回合、终端里的编译和扩展宿主都还在，托盘菜单才是真正的退出 / **Closing the window now minimizes to the tray by default**, keeping the process — and with it a running agent turn, a build in the terminal and the extension hosts — alive; the tray menu is where the real quit is
+- 「设置 → 高级 → 关闭窗口时」可以改回「直接退出」，改动立刻生效，不用重启 / Settings → Advanced → Closing the window switches back to "Quit", and the change applies immediately without a restart
+- 托盘图标没建成时（某些 Linux 桌面没有 StatusNotifier 宿主），关闭按原样结束进程，不会把窗口藏进一个不存在的图标 / When no tray could be created (a Linux desktop with no StatusNotifier host) closing ends the process as it always did, rather than hiding the window into an icon that is not there
 
 ## 插件兼容性 / Extension compatibility
 
@@ -11,8 +26,7 @@ This release does two things: it stops installed extensions from vanishing, and 
 - `description` / `displayName` 写成 `{ "value": "…" }` 的本地化形式也能解析 / Localised `description` / `displayName` written as `{ "value": "…" }` now parse
 - `package.json` 完全读不出来时，扩展会以"损坏"出现在列表里并附上解析器的原话，而不是静默缺席 / When `package.json` cannot be read at all, the extension is listed as broken with the parser's own message instead of silently missing
 - `main` 指向目录（`"./out"`）时按 Node 的规则找 `index.js` / `extension.js`，不再直接判"没有入口" / A directory `main` (`"./out"`) resolves through the Node convention (`index.js`, `extension.js`) instead of being reported as "no entry"
-- 只声明了 `browser` 入口的扩展现在也能加载 / Extensions that declare only a `browser` entry now load
-- `.mjs` 入口按 ES 模块加载，不再撞上 `ERR_REQUIRE_ESM` / An `.mjs` entry loads as an ES module instead of hitting `ERR_REQUIRE_ESM`
+- 只声明了 `browser` 入口的扩展现在也能加载，`.mjs` 入口按 ES 模块加载 / Extensions that declare only a `browser` entry now load, and an `.mjs` entry loads as an ES module
 - 手工拷进扩展目录的包不再被贴上"技能包"标签：`kind` 与 `source` 改为从清单推断 / A package copied into the extensions directory by hand is no longer labelled a skill pack: `kind` and `source` are inferred from the manifest
 - 清单改了 `activationEvents` 之后会立即生效，不必重装 / Editing `activationEvents` takes effect without a reinstall
 - 以上每一条都有单测，`cargo test` 里能跑 / Each of the above has a unit test that runs under `cargo test`
@@ -20,9 +34,10 @@ This release does two things: it stops installed extensions from vanishing, and 
 ## 设置 / Settings
 
 - 设置多了一页「高级」，专门放需要用户本人拍板的能力 / Settings gained an **Advanced** tab for capabilities that are the user's call
-- 这一页里唯一的开关默认关闭；关闭时不起监听、不开浏览器会话、模型选择器里也不出现对应条目 / The switch on that page is off by default; while it is off nothing listens, no browser session opens, and no matching entry appears in the model picker
-- 退回关闭状态会同时停掉正在运行的服务，不留一个面板再也够不着的端口 / Switching it back off also stops a running instance, so no port is left behind that no panel can reach
-- 这一页不再出现在左侧栏与命令面板里，入口只有一个 / It no longer appears in the side rail or the command palette; there is exactly one way in
+- 这一页的开关默认关闭；关闭时不起监听、不开浏览器会话、模型选择器里也不出现对应条目，右侧栏同样没有入口 / The switch on that page is off by default: nothing listens, no browser session opens, no matching entry appears in the model picker, and the rail stays without a button
+- 第一层是开关，第二层是面板里的「完全访问」确认——两道都过了，端口才会打开 / The switch is the first gate and the panel's full-access confirmation is the second; the port opens only after both
+- 退回关闭状态会撤销第二道确认、停掉正在运行的服务，不留一个面板再也够不着的端口 / Going back to off revokes that confirmation and stops a running instance, so no port is left behind that no panel can reach
+- 关闭窗口的行为也在这一页：最小化到托盘，或者直接退出 / The close-button behaviour lives on the same page: minimize to the tray, or quit
 
 ## 存放位置 / Where add-ons live
 
@@ -44,6 +59,9 @@ This release does two things: it stops installed extensions from vanishing, and 
 
 ## 升级 / Upgrading
 
-- 从 Beta 0.4 直接覆盖安装即可，per-user 安装按卸载登记覆盖 / Install straight over Beta 0.4; the per-user installer replaces through its uninstall registry entry
+- 从 Beta 0.4 或任一 Beta 0.5 构建直接覆盖安装即可，per-user 安装按卸载登记覆盖 / Install straight over Beta 0.4 or any Beta 0.5 build; the per-user installer replaces through its uninstall registry entry
 - 「高级」页的开关状态不继承：升级后一律是关闭，需要时手动打开 / The Advanced switch is not inherited: after an upgrade it is off, and you turn it on when you want it
-- 配置项只增不删；旧的技能/扩展目录是复制，不是移动，原件仍在 `%APPDATA%\IRIXEN Code` / Config only gains a field; the old skills/extensions folders are copied, not moved, and the originals stay in `%APPDATA%\IRIXEN Code`
+- 上一版已经在高级页里打开过开关的，升级后同样回到关闭，且「完全访问」需要重新确认 / Anyone who had turned the switch on in the previous build also starts off again, and full access has to be confirmed afresh
+- 关闭窗口的行为是新增配置项，升级后默认是"最小化到托盘"；不想要就到高级页改成"直接退出" / The close-button behaviour is a new setting and defaults to "minimize to tray" after an upgrade; change it to "quit" in Advanced if you do not want it
+- Linux 的 deb 新增 `libayatana-appindicator3-1` 依赖，托盘需要它；装过旧版的机器升级时由包管理器一并装上 / The Linux deb now depends on `libayatana-appindicator3-1`, which the tray needs; the package manager installs it with the upgrade
+- 配置项只增不删；旧的技能/扩展目录是复制，不是移动，原件仍在 `%APPDATA%\IRIXEN Code` / Config only gains fields; the old skills/extensions folders are copied, not moved, and the originals stay in `%APPDATA%\IRIXEN Code`

@@ -125,7 +125,7 @@ function renderTabs() {
     { id: 'agent', label: t('settings.agent'), icon: 'spark' },
     { id: 'appearance', label: t('settings.appearance'), icon: 'sun' },
     { id: 'mcp', label: t('settings.mcp'), icon: 'terminal' },
-    { id: 'advanced', label: t('settings.advanced'), icon: 'plug' },
+    { id: 'advanced', label: t('settings.advanced'), icon: 'settings' },
     { id: 'about', label: t('settings.about'), icon: 'info' },
   ];
   for (const d of defs) {
@@ -980,7 +980,7 @@ function advancedTab(): HTMLElement {
     ),
   );
 
-  wrap.append(addonsCard());
+  wrap.append(addonsCard(), windowCard());
   return wrap;
 }
 
@@ -1080,6 +1080,58 @@ function addonsCard(): HTMLElement {
       `${t('adv.addonsDefault')} ${def || '—'}`),
     h('div', { class: 'hint' }, t('adv.addonsRestart')),
   );
+}
+
+/** What the titlebar's X does.
+ *
+ *  The tray icon exists either way, so this is not "enable the tray" — it is
+ *  whether closing the window also ends the process. Hiding is the default
+ *  because an agent turn, a build in the terminal and a Node extension host all
+ *  live in this process; a close button that silently kills them is a data loss
+ *  waiting to happen. The tray menu always offers a real quit, so choosing
+ *  "keep running" can never strand the app.
+ */
+function windowCard(): HTMLElement {
+  if (!draft) return h('div');
+  const d = draft;
+  const card = h('div', { class: 'adv-card' });
+
+  const row = (toTray: boolean, title: string, hint: string) => {
+    const on = Boolean(d.close_to_tray) === toTray;
+    return h('button', {
+      class: `adv-opt${on ? ' on' : ''}`,
+      'aria-pressed': on ? 'true' : 'false',
+      onClick: async () => {
+        if (Boolean(d.close_to_tray) === toTray) return;
+        d.close_to_tray = toTray;
+        // The close handler reads the live config, so this takes effect on the
+        // very next click on the X — no restart.
+        await persist();
+        draw();
+      },
+    },
+    h('div', { class: 'adv-text' },
+      h('div', { class: 'adv-title' }, title),
+      h('div', { class: 'hint' }, hint),
+    ),
+    on ? icon('check', 14) : null);
+  };
+
+  const draw = () => {
+    clear(card);
+    card.append(
+      h('div', { class: 'adv-text' },
+        h('div', { class: 'adv-title' }, t('adv.window')),
+        h('div', { class: 'hint' }, t('adv.windowHint')),
+      ),
+      h('div', { class: 'adv-opts' },
+        row(true, t('adv.windowTray'), t('adv.windowTrayHint')),
+        row(false, t('adv.windowQuit'), t('adv.windowQuitHint')),
+      ),
+    );
+  };
+  draw();
+  return card;
 }
 
 /** Persist the master switch, then take the listener down if it just closed. */

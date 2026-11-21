@@ -2704,6 +2704,36 @@
 }
 .adv-on .hint { flex: 1; min-width: 180px; }
 
+/* Two mutually exclusive choices (close button behaviour). Rendered as rows
+   rather than a <select>: there are exactly two, and a one-line reason under
+   each is the only thing that makes the choice understandable. */
+.adv-opts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+.adv-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 9px 11px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.adv-opt:hover { border-color: var(--border-strong); }
+.adv-opt.on {
+  border-color: var(--accent);
+  background: var(--accent-soft, transparent);
+}
+.adv-opt > svg { flex: 0 0 auto; margin-top: 1px; color: var(--accent); }
+
 /* The second confirmation, at the top of the panel it unlocks. Deliberately
    reads as a gate rather than a notice: it is the only thing on screen until
    someone presses the button. */
@@ -2724,10 +2754,4 @@
   font-size: 13px;
   font-weight: 600;
   color: var(--warn);
-}
-.bridge-gate-body {
-  margin: 0;
-  font-size: 12.5px;
-  line-height: 1.65;
-  color: var(--text-1);
 }

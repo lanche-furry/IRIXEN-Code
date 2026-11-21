@@ -647,7 +647,6 @@ function renderGate() {
         icon('lock', 13),
         h('span', null, t('bridge.gateTitle')),
       ),
-      h('p', { class: 'bridge-gate-body' }, t('bridge.gateBody')),
       h('button', {
         class: 'btn primary',
         onClick: () => void confirmFullAccess(),

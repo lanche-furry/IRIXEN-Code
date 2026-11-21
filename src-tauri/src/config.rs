@@ -710,6 +710,16 @@ pub struct AppConfig {
     /// config files are treated as "not yet completed" without a migration.
     #[serde(default)]
     pub onboarding_completed: bool,
+    /// What the titlebar's close button does. `true` hides the window and
+    /// leaves the process (plus any running agent turn, terminal and extension
+    /// host) alive in the tray; `false` quits, as a close button normally does.
+    ///
+    /// Default is `true`: the tray icon is always there, so the window going
+    /// away while a build or an agent run is still in flight would be the
+    /// surprising outcome. The tray menu always offers a real quit, and the
+    /// setting is one click away in Settings → Advanced.
+    #[serde(default = "default_true")]
+    pub close_to_tray: bool,
 }
 
 fn default_version() -> u32 {
@@ -838,6 +848,7 @@ impl Default for AppConfig {
             terminal_shell: String::new(),
             addons_root: String::new(),
             onboarding_completed: false,
+            close_to_tray: true,
         }
     }
 }

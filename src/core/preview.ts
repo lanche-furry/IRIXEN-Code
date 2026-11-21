@@ -10,6 +10,7 @@ export function previewConfig(): AppConfig {
   return {
     version: 1,
     onboarding_completed: false,
+    close_to_tray: true,
     workspace: null,
     theme: 'light',
     language: 'zh-CN',

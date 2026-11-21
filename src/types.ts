@@ -217,6 +217,12 @@ export interface AppConfig {
    * (the folder the app was installed into); any other value is used as typed.
    */
   addons_root?: string;
+  /**
+   * What the titlebar's close button does: `true` hides the window to the tray
+   * and keeps the process (and its agent turn, terminal, extension host) alive;
+   * `false` quits.
+   */
+  close_to_tray?: boolean;
   /** Whether the first-run setup wizard has been completed (or skipped). */
   onboarding_completed?: boolean;
 }
