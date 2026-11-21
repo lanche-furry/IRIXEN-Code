@@ -22,7 +22,7 @@ pub mod wvproto;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 use agent::AgentEngine;
 use bridge::Bridge;
@@ -199,6 +199,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_config,
             commands::save_config,
+            commands::set_close_mode,
+            commands::quit_app,
+            commands::hide_main_window,
             commands::config_reset,
             commands::app_info,
             commands::open_addons_folder,
@@ -348,12 +351,27 @@ pub fn run() {
                     return;
                 }
                 if window.label() == "main" {
-                    let hide = window
+                    let (hide, asked) = window
                         .app_handle()
                         .try_state::<AppState>()
-                        .map(|st| crate::util::lock(&st.config).close_to_tray)
-                        .unwrap_or(false);
-                    if hide && tray::ready() {
+                        .map(|st| {
+                            let cfg = crate::util::lock(&st.config);
+                            (cfg.close_to_tray, cfg.close_mode_asked)
+                        })
+                        .unwrap_or((false, true));
+                    if !asked {
+                        // The first X is a question, not an order. Both answers
+                        // keep something the other one throws away (a running
+                        // turn vs. a process you can actually stop), and a
+                        // default chosen on the user's behalf is a default they
+                        // discover by losing work. So: stay open, come to the
+                        // front, and let the UI ask.
+                        api.prevent_close();
+                        let _ = window.show();
+                        let _ = window.unminimize();
+                        let _ = window.set_focus();
+                        let _ = window.emit("window:close-ask", ());
+                    } else if hide && tray::ready() {
                         api.prevent_close();
                         let _ = window.hide();
                     } else {

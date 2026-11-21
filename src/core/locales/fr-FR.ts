@@ -191,6 +191,7 @@ export const frFR = {
   'adv.windowTrayHint': "La fenêtre se cache ; l'agent, le terminal et les extensions continuent",
   'adv.windowQuit': 'Quitter',
   'adv.windowQuitHint': 'Fermer termine le processus',
+  'close.remember': 'Se souvenir de mon choix',
   'adv.bridgeOn': "Activé. Le panneau est dans la barre de droite, où l'accès complet reste à confirmer.",
   'adv.bridgeOpen': 'Ouvrir le panneau',
   'adv.addons': 'Dossier des extensions et compétences',

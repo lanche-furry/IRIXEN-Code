@@ -11,6 +11,7 @@ export function previewConfig(): AppConfig {
     version: 1,
     onboarding_completed: false,
     close_to_tray: true,
+    close_mode_asked: true,
     workspace: null,
     theme: 'light',
     language: 'zh-CN',

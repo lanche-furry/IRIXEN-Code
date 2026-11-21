@@ -23,6 +23,12 @@ export const api = {
   // config
   getConfig: () => invoke<AppConfig>('get_config'),
   saveConfig: (config: AppConfig) => invoke<AppConfig>('save_config', { config }),
+  /** Answer the first-close question: what the X does, and whether to stop
+   *  asking. Returns the saved config so the caller can adopt it verbatim. */
+  setCloseMode: (toTray: boolean, remember: boolean) =>
+    invoke<AppConfig>('set_close_mode', { toTray, remember }),
+  quitApp: () => invoke<void>('quit_app'),
+  hideMainWindow: () => invoke<void>('hide_main_window'),
   configReset: () => invoke<AppConfig>('config_reset'),
   appInfo: () => invoke<AppInfo>('app_info'),
   /** Reveal the skills/extensions folder; the path comes from config, never

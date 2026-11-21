@@ -190,6 +190,7 @@ export const zhTW = {
   'adv.windowTrayHint': '視窗隱藏，Agent、終端與擴充功能繼續執行',
   'adv.windowQuit': '直接結束',
   'adv.windowQuitHint': '按下關閉即結束行程',
+  'close.remember': '記住我的選擇',
   'adv.bridgeOn': '已開啟：入口在右側欄，面板裡還要再確認一次完全存取。',
   'adv.bridgeOpen': '開啟面板',
   'adv.addons': '外掛與技能存放位置',

@@ -15,8 +15,8 @@ This installer *is* Beta 0.5, and it contains everything below. Three things mat
 - 关掉开关会撤销这条确认并立即关闭端口，重新打开需要再确认一次 / Switching off revokes the confirmation and closes the port at once; switching back on asks again
 - 配置文件里写着 `full_access: true` 而开关是关的，一律按未确认处理，不会继承 / A config file that says `full_access: true` while the switch is off is treated as unconfirmed and is never inherited
 - **新增托盘图标**：左键还原窗口，右键菜单是「显示主窗口」和「退出」 / **New tray icon**: left click restores the window; the right-click menu holds "Show window" and "Quit"
-- **关闭窗口默认改成最小化到托盘**，进程、正在跑的 Agent 回合、终端里的编译和扩展宿主都还在，托盘菜单才是真正的退出 / **Closing the window now minimizes to the tray by default**, keeping the process — and with it a running agent turn, a build in the terminal and the extension hosts — alive; the tray menu is where the real quit is
-- 「设置 → 高级 → 关闭窗口时」可以改回「直接退出」，改动立刻生效，不用重启 / Settings → Advanced → Closing the window switches back to "Quit", and the change applies immediately without a restart
+- **第一次点关闭时，应用会先问一次**：最小化到托盘，还是直接退出；可以勾「记住我的选择」，之后按选定的来 / **The first close asks once**: minimize to the tray, or quit outright, with a "remember my choice" box — after that the chosen answer is what the X does
+- 「设置 → 高级 → 关闭窗口时」随时可以改，改动立刻生效，不用重启 / Settings → Advanced → Closing the window changes it at any time, and the change applies immediately without a restart
 - 托盘图标没建成时（某些 Linux 桌面没有 StatusNotifier 宿主），关闭按原样结束进程，不会把窗口藏进一个不存在的图标 / When no tray could be created (a Linux desktop with no StatusNotifier host) closing ends the process as it always did, rather than hiding the window into an icon that is not there
 
 ## 插件兼容性 / Extension compatibility

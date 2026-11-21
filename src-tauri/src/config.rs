@@ -720,6 +720,15 @@ pub struct AppConfig {
     /// setting is one click away in Settings → Advanced.
     #[serde(default = "default_true")]
     pub close_to_tray: bool,
+    /// Whether the "what should the X do" question has been answered yet.
+    ///
+    /// The first close is a decision, not a stored preference, so the app asks
+    /// once and remembers the answer here. Until this is true the close handler
+    /// refuses to guess: both answers destroy something the other one keeps —
+    /// hiding strands the process behind an icon, quitting throws away a running
+    /// turn — so the first X opens a question instead of taking a side.
+    #[serde(default)]
+    pub close_mode_asked: bool,
 }
 
 fn default_version() -> u32 {
@@ -849,6 +858,7 @@ impl Default for AppConfig {
             addons_root: String::new(),
             onboarding_completed: false,
             close_to_tray: true,
+            close_mode_asked: false,
         }
     }
 }

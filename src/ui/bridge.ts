@@ -131,7 +131,14 @@ export function mountBridge(host: HTMLElement): () => void {
   root.append(head, h('div', { class: 'bridge-body' }, gateEl, configEl, testCard, logCard));
   host.append(root);
 
-  renderConfig();
+  try {
+    renderConfig();
+  } catch (e) {
+    // A field builder that throws used to leave the dock blank, which reads as
+    // "the feature did nothing" rather than "the panel failed". Name the error
+    // where the fields would have been.
+    configEl.append(h('div', { class: 'hint err-text' }, errText(e)));
+  }
   renderGate();
   void refreshBridge();
   void refreshSessions(false);

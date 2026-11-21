@@ -75,6 +75,55 @@ pub fn save_config(state: State<'_, AppState>, mut config: AppConfig) -> Result<
     Ok(config)
 }
 
+/// The answer to the window's first close.
+///
+/// Asked once, by the UI, on the first X: hiding keeps a running turn alive,
+/// quitting ends it, and neither is a safe guess to make for someone. The
+/// answer lands in the config the close handler reads, so it takes effect on
+/// the very next click.
+#[tauri::command]
+pub fn set_close_mode(
+    state: State<'_, AppState>,
+    to_tray: bool,
+    remember: bool,
+) -> Result<AppConfig, String> {
+    let mut cfg = crate::util::lock(&state.config);
+    let prev = (cfg.close_to_tray, cfg.close_mode_asked);
+    cfg.close_to_tray = to_tray;
+    if remember {
+        cfg.close_mode_asked = true;
+    }
+    if let Err(e) = cfg.save() {
+        // In-memory must not disagree with disk: a value that works until the
+        // next launch is worse than an error now.
+        cfg.close_to_tray = prev.0;
+        cfg.close_mode_asked = prev.1;
+        return Err(e.to_string());
+    }
+    Ok(cfg.clone())
+}
+
+/// End the process, from the UI's "quit" answer or the tray menu.
+///
+/// Not "close the window": a bridge session keeps hidden WebViews alive, so
+/// closing the main window would leave a process with nothing on screen.
+#[tauri::command]
+pub fn quit_app(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
+/// Hide the main window after the user chose "minimize to tray".
+///
+/// Refused when no tray icon exists: a hidden window with no way back is a
+/// process the user cannot reach, which is exactly what `tray::ready` guards.
+#[tauri::command]
+pub fn hide_main_window(window: tauri::Window) -> Result<(), String> {
+    if !crate::tray::ready() {
+        return Err("托盘不可用，窗口没有隐藏".into());
+    }
+    window.hide().map_err(|e| e.to_string())
+}
+
 /// Reset the persisted profile back to factory defaults and arm the first-run
 /// wizard again.
 ///

@@ -223,6 +223,11 @@ export interface AppConfig {
    * `false` quits.
    */
   close_to_tray?: boolean;
+  /**
+   * Whether that question has been answered once. While it is false the close
+   * button asks instead of acting, so a first X never guesses.
+   */
+  close_mode_asked?: boolean;
   /** Whether the first-run setup wizard has been completed (or skipped). */
   onboarding_completed?: boolean;
 }

@@ -1104,6 +1104,10 @@ function windowCard(): HTMLElement {
       onClick: async () => {
         if (Boolean(d.close_to_tray) === toTray) return;
         d.close_to_tray = toTray;
+        // Answering here is the same answer as the first-close card, so the
+        // window must not ask again just because the choice was made on this
+        // page instead of the titlebar.
+        d.close_mode_asked = true;
         // The close handler reads the live config, so this takes effect on the
         // very next click on the X — no restart.
         await persist();

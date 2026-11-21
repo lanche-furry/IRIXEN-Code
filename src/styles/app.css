@@ -231,6 +231,19 @@
   width: 2px;
   background: var(--accent);
 }
+/* On, but still behind the second gate: the panel exists, the endpoint does
+   not. A dot keeps "waiting for you" distinguishable from "not installed" —
+   an unmarked icon over a confirmation-only panel reads as broken. */
+.rail-btn.pending::after {
+  content: "";
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--warn);
+}
 .rail-badge {
   position: absolute;
   top: 1px;

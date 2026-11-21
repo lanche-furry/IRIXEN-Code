@@ -191,6 +191,7 @@ export const esES = {
   'adv.windowTrayHint': 'La ventana se oculta; el agente, la terminal y las extensiones siguen',
   'adv.windowQuit': 'Salir',
   'adv.windowQuitHint': 'Cerrar termina el proceso',
+  'close.remember': 'Recordar mi elección',
   'adv.bridgeOn': 'Activado. El panel está en la barra derecha, donde todavía hay que confirmar el acceso completo.',
   'adv.bridgeOpen': 'Abrir panel',
   'adv.addons': 'Carpeta de complementos',

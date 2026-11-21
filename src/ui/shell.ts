@@ -8,6 +8,7 @@
 // to chat is instant and nothing is lost mid-answer.
 
 import { h, clear, fmtNum, svg } from '../core/dom';
+import { listen } from '@tauri-apps/api/event';
 import { icon, mark, type IconName } from './icons';
 import { t } from '../core/i18n';
 import { api, errText } from '../core/api';
@@ -352,9 +353,9 @@ function paintRail() {
   if (!railEl) return;
   clear(railEl);
 
-  const dockBtn = (surface: Surface, iconName: IconName, label: string, badge?: number) =>
+  const dockBtn = (surface: Surface, iconName: IconName, label: string, badge?: number, pending = false) =>
     h('button', {
-      class: `rail-btn${app.surface === surface ? ' on' : ''}`,
+      class: `rail-btn${app.surface === surface ? ' on' : ''}${pending ? ' pending' : ''}`,
       title: label,
       'aria-label': label,
       dataset: { surface },
@@ -369,12 +370,21 @@ function paintRail() {
   // put a panel in the rail that cannot do anything, and the whole point of the
   // switch is that nobody meets this feature by accident.
   const bridgeOn = Boolean(app.config?.bridge.enabled);
+  // On, but not yet confirmed: the panel exists, the endpoint does not. The dot
+  // is what separates "this is working" from "this is waiting for you" — an
+  // unmarked icon over a panel whose only content is a confirmation card reads
+  // as a broken feature rather than an unopened one.
+  const bridgePending = bridgeOn && !app.config?.bridge.full_access;
 
   // `append` stringifies `null`, so the conditional entry is filtered out
   // rather than handed to it.
   [
     dockBtn('chat', 'chat', t('rail.chat')),
-    bridgeOn ? dockBtn('bridge', 'plug', t('rail.bridge')) : null,
+    bridgeOn
+      ? dockBtn('bridge', 'plug',
+          bridgePending ? `${t('rail.bridge')} · ${t('bridge.stopped')}` : t('rail.bridge'),
+          undefined, bridgePending)
+      : null,
     dockBtn('extensions', 'puzzle', t('rail.extensions'), app.hosts.filter((h) => h.state === 'running').length),
   ].forEach((btn) => btn && railEl?.append(btn));
 
@@ -755,6 +765,98 @@ function remountPanels() {
   else if (app.surface === 'extensions') void refreshExtensions();
 }
 
+/* --------------------------------------------------------- the first close */
+
+/**
+ * The first X asks instead of acting.
+ *
+ * Hiding the window strands the process behind a tray icon; quitting ends an
+ * agent turn or a build that may be halfway through. Both are correct answers
+ * for different people, and neither is safe to pick silently — so the backend
+ * refuses the first close and lands here, with the two outcomes spelled out
+ * rather than described after the fact.
+ *
+ * The answer is stored, so this is a one-time question. Settings → Advanced
+ * carries the same switch for anyone who changes their mind.
+ */
+let askingClose = false;
+
+async function askCloseMode() {
+  // A second X while the card is up would stack two of them on the same
+  // decision; the backend already showed and focused the window, so ignoring
+  // the extra request loses nothing.
+  if (askingClose) return;
+  askingClose = true;
+
+  const remember = h('input', { type: 'checkbox', checked: true }) as HTMLInputElement;
+
+  const choice = await new Promise<'tray' | 'quit' | null>((resolve) => {
+    const overlay = h('div', { class: 'modal', style: { zIndex: '90' } });
+    const done = (v: 'tray' | 'quit' | null) => {
+      overlay.remove();
+      document.removeEventListener('keydown', onKey);
+      resolve(v);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        done(null);
+      }
+    };
+
+    const option = (value: 'tray' | 'quit', title: string, hint: string) =>
+      h('button', {
+        class: 'adv-opt',
+        onClick: () => done(value),
+      },
+      h('div', { class: 'adv-text' },
+        h('div', { class: 'adv-title' }, title),
+        h('div', { class: 'hint' }, hint),
+      ));
+
+    const card = h('div', { class: 'modal-card', style: { width: 'min(440px, 92vw)' } },
+      h('div', { class: 'modal-head' },
+        h('span', { class: 'modal-title' }, t('adv.window')),
+      ),
+      h('div', { style: { padding: '14px 18px 16px', display: 'flex', flexDirection: 'column', gap: '10px' } },
+        h('div', { class: 'hint', style: { color: 'var(--text-1)' } }, t('adv.windowHint')),
+        h('div', { class: 'adv-opts' },
+          option('tray', t('adv.windowTray'), t('adv.windowTrayHint')),
+          option('quit', t('adv.windowQuit'), t('adv.windowQuitHint')),
+        ),
+        h('label', { class: 'bridge-check' }, remember, h('span', null, t('close.remember'))),
+        h('div', { class: 'row', style: { justifyContent: 'flex-end', marginTop: '2px' } },
+          h('button', { class: 'btn', onClick: () => done(null) }, t('common.cancel')),
+        ),
+      ),
+    );
+    overlay.append(card);
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) done(null);
+    });
+    document.addEventListener('keydown', onKey);
+    document.body.append(overlay);
+  });
+
+  if (!choice) {
+    askingClose = false;
+    return;
+  }
+  try {
+    const saved = await api.setCloseMode(choice === 'tray', remember.checked);
+    app.config = saved;
+    emit('config:changed');
+    // Quitting is the one path that cannot be undone after the fact, so it runs
+    // last: a failed save above leaves the window open instead of half-answering.
+    if (choice === 'quit') await api.quitApp();
+    else await api.hideMainWindow();
+  } catch (e) {
+    toast(errText(e), 'err', 4200);
+  } finally {
+    askingClose = false;
+  }
+}
+
 /* ------------------------------------------------------------ global wiring */
 
 function bindGlobal() {
@@ -820,6 +922,11 @@ function bindGlobal() {
     }
   });
   on('lang:changed', () => relabel());
+  // The first X arrives as an event, not a close: the backend keeps the window
+  // open (and brings it forward) so the question is asked where it can be read.
+  void listen('window:close-ask', () => {
+    void askCloseMode();
+  });
   on('workspace', () => {
     const ws = root?.querySelector('.tb-ws');
     if (ws) {
