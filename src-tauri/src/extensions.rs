@@ -2281,14 +2281,16 @@ mod manifest_tests {
         let dir = temp_ext(
             "types",
             r#"{"name":"odd","publisher":"acme","version":"1.0.0",
-                "main":{"value":"out/extension.js"},
+                "main":123,
                 "description":{"value":"本地化描述"},
                 "activationEvents":["onCommand:x", 7, null]}"#,
         );
         let info = meta(&dir);
         assert_eq!(info.description, "本地化描述");
-        // `main` as an object is not a path: no entry, but still listed — this
-        // is a declared-only extension as far as the host is concerned.
+        // `main` as a number is not a path: no entry, but still listed — this
+        // is a declared-only extension as far as the host is concerned. (An
+        // object *with* a `value` is the l10n wrapper and is read as the
+        // string it wraps, which is correct for `main` too.)
         assert_eq!(info.entry, "");
         assert!(!info.broken);
         assert_eq!(info.activation, vec!["onCommand:x".to_string()]);
