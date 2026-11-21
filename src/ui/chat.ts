@@ -452,8 +452,20 @@ function scrollDown(force = false) {
   stick = true;
 }
 
+/** Where "nothing can answer yet" should take the user.
+ *
+ *  The Web2API master switch only reveals the panel; its built-in provider
+ *  stays disabled until full access is confirmed and the bridge is started.
+ *  Sending someone to Settings → Providers in that state reads as "you forgot
+ *  to configure a key" when the actual next step is the Web2API panel. */
+function routeFromNoProvider() {
+  if (app.config?.bridge.enabled) emit('surface:open', 'bridge');
+  else emit('settings:open', 'providers');
+}
+
 function emptyState(): HTMLElement {
   const hasProvider = (app.config?.providers || []).some(providerReady);
+  const bridgeOn = Boolean(app.config?.bridge.enabled);
   const wrap = h(
     'div',
     { class: 'side-empty', style: { padding: '36px 16px', textAlign: 'center', gap: '8px' } },
@@ -470,9 +482,11 @@ function emptyState(): HTMLElement {
         {
           class: 'btn',
           style: { marginTop: '6px' },
-          onClick: () => emit('settings:open', 'providers'),
+          onClick: routeFromNoProvider,
         },
-        `${t('chat.noProvider')} · ${t('chat.configure')}`,
+        bridgeOn
+          ? `${t('rail.bridge')} · ${t('adv.bridgeOpen')}`
+          : `${t('chat.noProvider')} · ${t('chat.configure')}`,
       ),
     );
   }
@@ -951,7 +965,7 @@ export async function send() {
     } else {
       toast(t('chat.noProvider'), 'err');
     }
-    emit('settings:open', 'providers');
+    routeFromNoProvider();
     return;
   }
   if (!app.model) {
