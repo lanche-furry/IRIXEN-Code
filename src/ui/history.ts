@@ -62,7 +62,11 @@ export function openHistory() {
     if (!meta) return;
     close();
     if (meta.id === app.sessionId) return;
-    await loadSession(meta.id);
+    try {
+      await loadSession(meta.id);
+    } catch (e) {
+      toast(errText(e), 'err');
+    }
   };
 
   const remove = async (meta: SessionMeta) => {
@@ -80,8 +84,22 @@ export function openHistory() {
     }
   };
 
+  const rows: HTMLElement[] = [];
+
+  // Hover only moves the highlight. Rebuilding the rows on `mouseenter` used
+  // to replace the element under the pointer over and over: Chromium recomputes
+  // hover state after a DOM change, so the new row fired `mouseenter` again,
+  // and a click never landed on a stable target. That made the list look alive
+  // but impossible to pick from.
+  const setCursor = (next: number, scroll: boolean) => {
+    cursor = Math.max(0, Math.min(next, Math.max(shown.length - 1, 0)));
+    rows.forEach((row, i) => row.classList.toggle('on', i === cursor));
+    if (scroll) rows[cursor]?.scrollIntoView({ block: 'nearest' });
+  };
+
   const draw = () => {
     clear(list);
+    rows.length = 0;
     if (shown.length === 0) {
       list.append(h('div', { class: 'palette-empty' }, all.length ? t('palette.empty') : t('history.empty')));
       return;
@@ -100,25 +118,22 @@ export function openHistory() {
         },
         icon('trash', 12),
       );
-      list.append(
-        h(
-          'div',
-          {
-            class: `palette-row${i === cursor ? ' on' : ''}`,
-            onMouseenter: () => {
-              cursor = i;
-              draw();
-            },
-            onClick: () => void pick(meta),
-          },
-          h('span', { class: 'history-label' }, title),
-          h('span', { class: 'palette-hint' }, t('history.messages', { n: String(meta.message_count) })),
-          h('span', { class: 'palette-group' }, meta.id === app.sessionId ? t('history.current') : ago(meta.updated_at)),
-          del,
-        ),
+      const row = h(
+        'div',
+        {
+          class: 'palette-row',
+          onClick: () => void pick(meta),
+        },
+        h('span', { class: 'history-label' }, title),
+        h('span', { class: 'palette-hint' }, t('history.messages', { n: String(meta.message_count) })),
+        h('span', { class: 'palette-group' }, meta.id === app.sessionId ? t('history.current') : ago(meta.updated_at)),
+        del,
       );
+      row.addEventListener('mouseenter', () => setCursor(i, false));
+      rows.push(row);
+      list.append(row);
     });
-    (list.children[cursor] as HTMLElement | undefined)?.scrollIntoView({ block: 'nearest' });
+    setCursor(cursor, false);
   };
 
   const filter = () => {
@@ -134,12 +149,10 @@ export function openHistory() {
       close();
     } else if (e.key === 'ArrowDown') {
       e.preventDefault();
-      cursor = Math.min(cursor + 1, Math.max(shown.length - 1, 0));
-      draw();
+      setCursor(cursor + 1, true);
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      cursor = Math.max(cursor - 1, 0);
-      draw();
+      setCursor(cursor - 1, true);
     } else if (e.key === 'Enter') {
       e.preventDefault();
       void pick(shown[cursor]);

@@ -19,6 +19,7 @@ This is the third cut of Beta 0.5: the chat no longer sends users with the Web2A
 - 登录状态不再因为官网页面刷新时的一瞬空档就掉线：要连续两次探测失败才隐藏模型，登录墙判断也只认明确的「请登录 / sign in to continue」类文案 / Login no longer drops on a transient page reload: two consecutive failed probes are needed before models are hidden, and the login-wall check only matches explicit "please sign in" wording
 - 「撤销这一轮」现在会连同这一轮的提问和回答一起从会话中移除，并把快照文件恢复；历史里只留一条撤销回执 / "Undo this turn" now removes that turn's prompt and reply from the transcript as well as restoring its files, leaving only a single undo receipt in the history
 - 更新后如果 Web2API 面板在首帧还没就绪，打开它时会自行重建内容，不必先绕到「设置 → 高级」再回来 / If the Web2API panel missed the first layout after an update, opening it now rebuilds itself instead of requiring a detour through Settings → Advanced
+- 会话历史可以正常切换了：鼠标悬停只移动高亮，不再反复重建列表行；切换后聊天头部会显示当前会话标题，便于确认 / Session history can be switched again: hovering only moves the highlight instead of rebuilding rows under the pointer, and the chat header now shows the current session title so a switch is visible
 - **新增托盘图标**：左键还原窗口，右键菜单是「显示主窗口」和「退出」 / **New tray icon**: left click restores the window; the right-click menu holds "Show window" and "Quit"
 - **第一次点关闭时，应用会先问一次**：最小化到托盘，还是直接退出；可以勾「记住我的选择」，之后按选定的来 / **The first close asks once**: minimize to the tray, or quit outright, with a "remember my choice" box — after that the chosen answer is what the X does
 - 「设置 → 高级 → 关闭窗口时」随时可以改，改动立刻生效，不用重启 / Settings → Advanced → Closing the window changes it at any time, and the change applies immediately without a restart

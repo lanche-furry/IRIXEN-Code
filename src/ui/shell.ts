@@ -968,7 +968,12 @@ function bindGlobal() {
       remountPanels();
     }
   });
-  on('session:changed', () => refreshComposer());
+  on('session:changed', () => {
+    // The header carries the session title: without redrawing it, picking a
+    // conversation from history looked like nothing had happened.
+    renderHead();
+    refreshComposer();
+  });
   on('editor:file', () => renderStatus());
   on('editor:cover', (show: boolean) => setSurface(show ? 'editor' : 'chat'));
   // "Open the panel" from Settings → Advanced: the modal is gone by the time

@@ -200,7 +200,10 @@ export function renderLog() {
 export function renderHead() {
   if (!headEl) return;
   clear(headEl);
-  const title = h('span', { class: 'chat-title' }, t('chat.title'));
+  // The session title is the confirmation that a pick from history took
+  // effect; with a generic "IRIXEN Agent" header, switching looked like a
+  // no-op whenever two conversations started with the same first message.
+  const title = h('span', { class: 'chat-title' }, app.sessionTitle || t('chat.title'));
   const spacer = h('div', { class: 'spacer', style: { flex: '1' } });
 
   const btnNew = h(
@@ -1319,6 +1322,7 @@ export async function newSession() {
   try {
     const meta = await api.newSession();
     app.sessionId = meta.id;
+    app.sessionTitle = meta.title || '';
     app.chat = [];
     app.contextTokens = 0;
     // A picture pasted for the previous conversation must not silently ride
@@ -1342,6 +1346,7 @@ export async function clearSession() {
   if (!app.sessionId) return;
   try {
     await api.clear(app.sessionId);
+    app.sessionTitle = '';
     app.chat = [];
     app.contextTokens = 0;
     renderLog();
@@ -1354,6 +1359,7 @@ export async function clearSession() {
 /** Load a session's persisted transcript into the panel. */
 export async function loadSession(id: string) {
   app.sessionId = id;
+  app.sessionTitle = '';
   pendingImages = [];
   renderAttachments();
   // Tell the engine which session is current, so a restart reopens this one
@@ -1363,6 +1369,7 @@ export async function loadSession(id: string) {
   // agent will send on this session's behalf.
   try {
     const meta = (await api.sessions()).find((s) => s.id === id);
+    app.sessionTitle = meta?.title || '';
     if (meta?.provider_id) app.providerId = meta.provider_id;
     if (meta?.model !== undefined) app.model = meta.model;
   } catch {

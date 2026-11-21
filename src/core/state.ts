@@ -55,6 +55,8 @@ export const app = {
   info: null as AppInfo | null,
   view: 'explorer' as ViewId,
   sessionId: '' as string,
+  /** Title of the open session, shown in the chat header so a switch is visible. */
+  sessionTitle: '' as string,
   busy: false,
   models: [] as ModelInfo[],
   modelsLoading: false,

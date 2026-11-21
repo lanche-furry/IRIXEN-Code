@@ -117,27 +117,37 @@ export function openPalette() {
     void Promise.resolve(item.run()).catch((e) => toast(errText(e), 'err'));
   };
 
+  const rows: HTMLElement[] = [];
+
+  // Hover must not rebuild the list: replacing the row under the pointer makes
+  // Chromium fire `mouseenter` again, and the click target keeps disappearing.
+  const setCursor = (next: number, scroll: boolean) => {
+    cursor = Math.max(0, Math.min(next, Math.max(shown.length - 1, 0)));
+    rows.forEach((row, i) => row.classList.toggle('on', i === cursor));
+    if (scroll) rows[cursor]?.scrollIntoView({ block: 'nearest' });
+  };
+
   const draw = () => {
     clear(list);
+    rows.length = 0;
     if (shown.length === 0) {
       list.append(h('div', { class: 'palette-empty' }, t('palette.empty')));
       return;
     }
     shown.forEach((item, i) => {
-      list.append(h('div', {
-        class: `palette-row${i === cursor ? ' on' : ''}`,
-        onMouseenter: () => {
-          cursor = i;
-          draw();
-        },
+      const row = h('div', {
+        class: 'palette-row',
         onClick: () => run(item),
       },
         h('span', { class: 'palette-label' }, item.label),
         item.hint ? h('span', { class: 'palette-hint' }, item.hint) : null,
         h('span', { class: 'palette-group' }, item.group),
-      ));
+      );
+      row.addEventListener('mouseenter', () => setCursor(i, false));
+      rows.push(row);
+      list.append(row);
     });
-    (list.children[cursor] as HTMLElement | undefined)?.scrollIntoView({ block: 'nearest' });
+    setCursor(cursor, false);
   };
 
   const filter = () => {
@@ -155,12 +165,10 @@ export function openPalette() {
       close();
     } else if (e.key === 'ArrowDown') {
       e.preventDefault();
-      cursor = Math.min(cursor + 1, shown.length - 1);
-      draw();
+      setCursor(cursor + 1, true);
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      cursor = Math.max(cursor - 1, 0);
-      draw();
+      setCursor(cursor - 1, true);
     } else if (e.key === 'Enter') {
       e.preventDefault();
       run(shown[cursor]);
