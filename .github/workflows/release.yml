@@ -214,6 +214,15 @@ jobs:
           stripped=$(echo "$TAG" | sed 's/^[vV]//')
           core=$(node -p "require('./package.json').version.split('-')[0]")
           digits=$(echo "$stripped" | grep -oE '[0-9]+' | paste -sd. -)
+          pre=$(node -p "((require('./package.json').version.split('-')[1]) || '').split('.').filter(s => /^[0-9]+$/.test(s)).pop() || ''")
+          # A re-cut keeps the product label and hangs the prerelease counter off
+          # the end of it: tag `Beta0.5.2` ships `0.5.0-beta.2`. Without this
+          # branch the only way to publish a re-cut would be to claim a stable
+          # patch version the build does not have.
+          if [ -n "$pre" ] && [ "$digits" = "${core%.*}.$pre" ]; then
+            echo "tag $TAG -> version $core-$pre (re-cut)"
+            exit 0
+          fi
           case "$core" in
             "$digits"|"$digits".*) echo "tag $TAG -> version $core";;
             *)
