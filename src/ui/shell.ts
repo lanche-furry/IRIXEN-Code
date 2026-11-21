@@ -421,6 +421,15 @@ export function setSurface(surface: Surface) {
   if (surface === 'bridge' && !app.config?.bridge.enabled) surface = 'chat';
   app.surface = surface;
 
+  // A panel skipped during the first layout — config arriving a beat late, or
+  // a surface restored before the switch was known — used to leave an empty
+  // stage until the user detoured through Settings → Advanced. Rebuild here so
+  // opening the surface is always enough to get the content back.
+  if (surface === 'bridge' && !bridgeMounted && app.config?.bridge.enabled) {
+    remountPanels();
+    return;
+  }
+
   const dock = surfaceEl?.querySelector('.dock') as HTMLElement | null;
   if (dock) {
     dock.hidden = surface === 'editor';

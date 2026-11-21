@@ -30,9 +30,27 @@ pub struct Turn {
     seen: HashSet<PathBuf>,
     bytes: usize,
     blocked: Option<String>,
+    /// Where this turn's transcript begins. `undo` restores the files and
+    /// drops the matching messages, so a reverted turn leaves no trace in the
+    /// session — not just clean files beside a stale conversation.
+    session: String,
+    msg_start: usize,
 }
 
 impl Turn {
+    pub fn set_origin(&mut self, session: &str, msg_start: usize) {
+        self.session = session.to_string();
+        self.msg_start = msg_start;
+    }
+
+    pub fn origin(&self) -> Option<(&str, usize)> {
+        if self.session.is_empty() {
+            None
+        } else {
+            Some((&self.session, self.msg_start))
+        }
+    }
+
     /// Capture a file right before a tool writes it. Only the first write to a
     /// path is captured: undo must return the file to its state before the
     /// turn, not to the state between the second and third write.
@@ -175,6 +193,14 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&f).unwrap(), "one");
 
         let _ = std::fs::remove_dir_all(&ws);
+    }
+
+    #[test]
+    fn origin_is_recorded_for_transcript_rollback() {
+        let mut turn = Turn::default();
+        assert_eq!(turn.origin(), None);
+        turn.set_origin("s-1", 7);
+        assert_eq!(turn.origin(), Some(("s-1", 7)));
     }
 
     #[test]

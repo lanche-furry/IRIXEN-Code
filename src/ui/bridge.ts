@@ -723,6 +723,18 @@ function paintLog() {
 }
 
 export async function refreshBridge() {
+  // If the panel was mounted before the config was ready, `renderConfig()`
+  // returned without a draft and left an empty body. Rebuild on the next
+  // refresh (including the one fired by opening the surface) instead of
+  // waiting for a save in Advanced to force a remount.
+  if (!draft && app.config && configEl) {
+    try {
+      renderConfig();
+      renderGate();
+    } catch (e) {
+      configEl.append(h('div', { class: 'hint err-text' }, errText(e)));
+    }
+  }
   try {
     status = await api.web2apiStatus();
   } catch (e) {

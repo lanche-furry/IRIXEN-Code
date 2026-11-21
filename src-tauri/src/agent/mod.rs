@@ -245,8 +245,14 @@ impl AgentEngine {
     /// Reserve an id before the first tool call. Turns live in memory only:
     /// undo is a "that was wrong, put it back" gesture within the same run of
     /// the app, not an archive.
-    fn begin_turn(&self) -> u64 {
+    fn begin_turn(&self, session_id: &str) -> u64 {
         let id = self.turn_seq.fetch_add(1, Ordering::SeqCst);
+        // Captured before the user message is appended, so undo knows exactly
+        // which slice of the transcript belongs to this turn.
+        let msg_start = lock(&self.sessions)
+            .get(session_id)
+            .map(|s| s.messages.len())
+            .unwrap_or(0);
         let mut turns = lock(&self.turns);
         // Keep the map from growing without bound over a long session; the UI
         // only ever offers undo for the newest few turns anyway.
@@ -257,7 +263,9 @@ impl AgentEngine {
                 turns.remove(&old);
             }
         }
-        turns.insert(id, snapshots::Turn::default());
+        let mut snapshot = snapshots::Turn::default();
+        snapshot.set_origin(session_id, msg_start);
+        turns.insert(id, snapshot);
         id
     }
 
@@ -303,11 +311,32 @@ impl AgentEngine {
         });
     }
 
-    /// Put every file of one turn back. Consumes the snapshot so a second
-    /// click cannot re-run a restore that already happened.
+    /// Put every file of one turn back and drop that turn from the transcript.
+    /// Consumes the snapshot so a second click cannot re-run the restore.
     pub fn undo_turn(&self, turn: u64) -> Result<Vec<String>, String> {
-        let entry = lock(&self.turns).remove(&turn).ok_or("找不到这一轮的快照（已撤销或应用已重启）")?;
-        entry.undo()
+        let entry = lock(&self.turns)
+            .remove(&turn)
+            .ok_or("找不到这一轮的快照（已撤销或应用已重启）")?;
+        let restored = entry.undo()?;
+
+        // The next user message after `msg_start` begins a later turn. Stop
+        // there: undoing an older turn must not erase turns that came after it.
+        if let Some((session_id, start)) = entry.origin() {
+            let mut map = lock(&self.sessions);
+            if let Some(s) = map.get_mut(session_id) {
+                if start < s.messages.len() {
+                    let end = (start + 1..s.messages.len())
+                        .find(|&i| s.messages[i].role == Role::User)
+                        .unwrap_or(s.messages.len());
+                    s.messages.drain(start..end);
+                    s.updated_at = now_ms();
+                    let saved = s.clone();
+                    drop(map);
+                    self.save_session(&saved);
+                }
+            }
+        }
+        Ok(restored)
     }
 
     pub fn set_model(
@@ -703,7 +732,7 @@ impl AgentEngine {
 
         // Everything this turn writes is captured here first, so the UI can
         // offer a single "undo this turn" without touching the user's git state.
-        let turn = self.begin_turn();
+        let turn = self.begin_turn(&session_id);
 
         // ---- user message (prompt + attachments) ----
         let mut body = prompt.clone();

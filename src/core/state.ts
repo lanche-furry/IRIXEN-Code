@@ -45,6 +45,9 @@ export interface ChatItem {
   error?: boolean;
   streaming?: boolean;
   turn?: ChatTurn;
+  /** Backend turn id, tagged on the prompt and the reply so undo can remove
+   *  the whole exchange from the transcript as well as restore its files. */
+  turnId?: number;
 }
 
 export const app = {

@@ -582,10 +582,20 @@ async function runUndo(item: ChatItem) {
   const view = views.get(item.id);
   if (view) paintTurnBar(item, view);
   try {
+    const files = turn.files.length;
     await api.undo(turn.id);
     turn.undone = true;
     turn.undoing = false;
-    if (view) paintTurnBar(item, view);
+    // Files are back and the backend dropped the same turn from the session.
+    // Mirror that in the transcript: leaving the prompt and reply behind would
+    // describe work that no longer exists. One system line is the receipt.
+    app.chat = app.chat.filter((i) => i.turnId !== turn.id);
+    app.chat.push({
+      id: nextId('sys'),
+      role: 'system',
+      text: t('chat.undone', { n: String(files) }),
+    });
+    renderLog();
     // The tree, git status and the review list all describe files that just
     // changed underneath them.
     emit('git:changed');
@@ -826,6 +836,18 @@ function handleEvent(ev: AgentEvent) {
         undoable: ev.undoable,
         reason: ev.reason,
       };
+      // Tag both halves of the exchange with the backend turn id. Undo then
+      // removes the prompt and the reply together instead of leaving a
+      // conversation that describes files which were put back.
+      item.turnId = ev.turn;
+      const at = app.chat.indexOf(item);
+      for (let i = at - 1; i >= 0; i--) {
+        const prev = app.chat[i];
+        if (prev.role === 'user') {
+          if (prev.turnId === undefined) prev.turnId = ev.turn;
+          break;
+        }
+      }
       const view = views.get(item.id);
       if (view) paintTurnBar(item, view);
       scrollDown();
