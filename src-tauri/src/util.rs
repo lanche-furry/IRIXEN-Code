@@ -94,27 +94,46 @@ pub fn short_id() -> String {
     format!("{:x}", n.wrapping_mul(0x9E3779B97F4A7C15) & 0xffff_ffff_ffff)
 }
 
+/// Only the three schemes this app has any business opening.
+///
+/// Query strings are fine, because nothing parses the URL any more (see
+/// `open_external`); control characters are not, because they can terminate a
+/// header or an argument somewhere downstream.
+pub fn external_url_ok(url: &str) -> bool {
+    let u = url.trim();
+    if u.is_empty() || u.chars().any(|c| c.is_control()) {
+        return false;
+    }
+    let lower = u.to_ascii_lowercase();
+    lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("mailto:")
+}
+
 /// Hand a URL to the OS default browser.
 ///
-/// Deliberately restricted to http(s) and mailto: an extension calling
-/// `env.openExternal` must not be a way to launch `cmd.exe` with arguments.
+/// Restricted to http(s) and mailto:, because `env.openExternal` must not be a
+/// way for extension code to launch anything else.
+///
+/// The important change is what is *not* here: no command interpreter. This used
+/// to run `cmd /C start "" <url>`, and `cmd` keeps parsing its arguments — `&`,
+/// `|`, `^`, `<`, `>` are syntax even inside one argument. A link such as
+/// `https://example.com/?a=1&calc` therefore opened the page **and** ran
+/// `calc`, which turned every clickable link in a model's answer into a
+/// potential command. The URL now goes as a single argument to a program that
+/// forwards it to the shell's file handler, so nothing parses it.
 pub fn open_external(url: &str) -> Result<(), String> {
     let trimmed = url.trim();
-    let lower = trimmed.to_ascii_lowercase();
-    if !(lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("mailto:")) {
+    if !external_url_ok(trimmed) {
         return Err("只允许打开 http/https/mailto 链接".into());
-    }
-    if trimmed.contains('\n') || trimmed.contains('\r') {
-        return Err("链接里不能包含换行".into());
     }
 
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        // `cmd /C start "" <url>` is the portable incantation; the empty title
-        // keeps `start` from treating a quoted URL as the window title.
-        std::process::Command::new("cmd")
-            .args(["/C", "start", "", trimmed])
+        // One argv entry, handed straight to ShellExecute. The old `start`
+        // needed a command interpreter, and that interpreter was the bug.
+        std::process::Command::new("rundll32")
+            .arg("url.dll,FileProtocolHandler")
+            .arg(trimmed)
             .creation_flags(0x0800_0000)
             .spawn()
             .map(|_| ())
@@ -135,6 +154,37 @@ pub fn open_external(url: &str) -> Result<(), String> {
             .spawn()
             .map(|_| ())
             .map_err(|e| format!("打开链接失败：{e}"))
+    }
+}
+
+#[cfg(test)]
+mod url_tests {
+    use super::external_url_ok;
+
+    #[test]
+    fn only_the_three_schemes_get_through() {
+        assert!(external_url_ok("https://github.com/lanche-furry/IRIXEN-Code"));
+        assert!(external_url_ok("http://127.0.0.1:8791/health"));
+        assert!(external_url_ok("mailto:someone@example.com"));
+        assert!(!external_url_ok("javascript:alert(1)"));
+        assert!(!external_url_ok("file:///C:/Windows/System32/notepad.exe"));
+        assert!(!external_url_ok("ms-settings:privacy"));
+        assert!(!external_url_ok("  "));
+    }
+
+    #[test]
+    fn a_query_string_is_a_query_string() {
+        // `&` was once enough to append a command, because a command
+        // interpreter parsed the URL as part of a command line. It is plain
+        // data now, so links with real query strings keep working.
+        assert!(external_url_ok("https://example.com/?a=1&b=2"));
+        assert!(external_url_ok("https://example.com/?q=a%20b"));
+    }
+
+    #[test]
+    fn control_characters_are_refused() {
+        assert!(!external_url_ok("https://example.com/\ncalc"));
+        assert!(!external_url_ok("https://example.com/\r\nHost: x"));
     }
 }
 

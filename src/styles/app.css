@@ -2648,3 +2648,44 @@
 .approval-state.ok { color: var(--accent); }
 .approval-state.expired { color: var(--warn, #b45309); }
 .picker.is-warn { border-color: var(--warn, #b45309); color: var(--warn, #b45309); }
+
+/* --------------------------------------------------------------- advanced tab */
+
+/* Settings → Advanced is where decisions live rather than preferences. The
+   card is deliberately plain: one sentence of consequence, one switch. */
+.adv-card {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--bg-2);
+  padding: 12px;
+}
+.adv-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.adv-text { flex: 1; min-width: 0; }
+.adv-title { font-size: 13px; font-weight: 600; margin-bottom: 3px; }
+.adv-warn {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--warn);
+  color: var(--warn);
+  background: var(--warn-soft, transparent);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+/* The bridge panel was laid out for a dock that owns the full pane height.
+   Inside the modal it has to grow with its content and scroll with the tab. */
+.bridge-host .bridge {
+  grid-template-rows: auto auto;
+  overflow: visible;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+}
+.bridge-host .bridge-body {
+  overflow: visible;
+  padding: 10px;
+}

@@ -414,7 +414,10 @@ impl ExtHost {
         // command titles and view names. VS Code localises it before activation;
         // skipping that leaves `%key%` strings in whatever UI they build.
         let pkg = crate::extensions::localize_manifest(&pkg, &dir, &language);
-        let esm = pkg.get("type").and_then(|v| v.as_str()) == Some("module");
+        // `type: module`, or an `.mjs` entry: `require()` rejects the latter
+        // with ERR_REQUIRE_ESM, which surfaced as "failed to load".
+        let esm = pkg.get("type").and_then(|v| v.as_str()) == Some("module")
+            || entry.extension().and_then(|e| e.to_str()) == Some("mjs");
 
         let cfg = json!({
             "id": info.id,
@@ -977,22 +980,54 @@ impl ExtHost {
     }
 }
 
-/// `main` from package.json, resolved against the extension directory.
+/// Which file the host should load, resolved against the extension directory.
+///
+/// Three shapes that all exist in the wild and all used to end with "这个扩展
+/// 没有 main 入口":
+///   * `main` is a directory (`"./out"`) — Node resolves it to its index
+///   * only `browser` is declared — the entry for web extensions
+///   * `main` is `.mjs` — a module whatever `type` says
 fn resolve_entry(info: &crate::extensions::ExtensionInfo) -> Option<PathBuf> {
     let dir = PathBuf::from(&info.dir);
-    let mut rel = info.entry.clone();
-    if rel.is_empty() {
-        let pkg: Value = std::fs::read(dir.join("package.json"))
-            .ok()
-            .and_then(|b| serde_json::from_slice(&b).ok())?;
-        rel = pkg.get("main").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let pkg: Value = std::fs::read(dir.join("package.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or(Value::Null);
+    let field = |k: &str| {
+        pkg.get(k)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
+    };
+
+    let mut candidates: Vec<String> = Vec::new();
+    if !info.entry.is_empty() {
+        candidates.push(info.entry.clone());
+    } else {
+        for key in ["main", "browser"] {
+            let v = field(key);
+            if !v.is_empty() {
+                candidates.push(v);
+            }
+        }
     }
-    if rel.is_empty() {
-        return None;
+
+    for rel in candidates {
+        let rel = rel.trim_start_matches("./").replace('\\', "/");
+        let path = dir.join(&rel);
+        if path.is_file() {
+            return Some(path);
+        }
+        if path.is_dir() {
+            for name in ["index.js", "extension.js", "main.js", "index.mjs", "extension.mjs"] {
+                let p = path.join(name);
+                if p.is_file() {
+                    return Some(p);
+                }
+            }
+        }
     }
-    let rel = rel.trim_start_matches("./").replace('\\', "/");
-    let path = dir.join(rel);
-    path.is_file().then_some(path)
+    None
 }
 
 /// Names an ESM extension may `import { X } from 'vscode'`. The shim writes a

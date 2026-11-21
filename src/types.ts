@@ -130,6 +130,9 @@ export interface ModelRoute {
 
 /** Web2API: a local OpenAI/Anthropic-compatible endpoint over web sessions. */
 export interface BridgeConfig {
+  /** Master switch (Settings → Advanced). Off for everyone who has not asked
+   *  for it; nothing listens on a port until this is true. */
+  enabled: boolean;
   auto_start: boolean;
   port: number;
   api_key: string;

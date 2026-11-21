@@ -1087,6 +1087,45 @@ pub fn window_control(app: tauri::AppHandle, action: String) -> Result<(), Strin
 // web2api bridge
 // ---------------------------------------------------------------------------
 
+/// The master switch lives in Settings → Advanced and defaults to off, so the
+/// commands that would bind a port or open a hidden browser window refuse to
+/// run until someone has actually turned it on. A stale front end, a scripted
+/// `invoke`, or a config file copied from another machine all hit this wall
+/// instead of quietly starting a proxy.
+fn bridge_armed(state: &State<'_, AppState>) -> Result<(), String> {
+    if crate::util::lock(&state.config).bridge.enabled {
+        Ok(())
+    } else {
+        Err("网页桥接没有启用：请到 设置 → 高级 手动打开".to_string())
+    }
+}
+
+/// Makes sure the endpoint has a token before it starts listening.
+///
+/// An empty key used to mean "loopback, so no auth needed" — but a local
+/// endpoint that answers with the user's logged-in browser session is exactly
+/// what every other process on the machine would like to talk to. First start
+/// generates one and writes it to config; the panel shows the same value, so
+/// nothing silently changes under the user.
+fn ensure_bridge_key(state: &AppState) -> Result<(), String> {
+    let generated = {
+        let mut cfg = crate::util::lock(&state.config);
+        if cfg.bridge.api_key.trim().is_empty() {
+            cfg.bridge.api_key = crate::bridge::random_key();
+            cfg.sync_web2api_provider();
+            true
+        } else {
+            false
+        }
+    };
+    // Persist immediately: if the start then fails, the key still exists on the
+    // next launch, and the panel never shows an empty field for a live token.
+    if generated {
+        state.save()?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn web2api_status(bridge: State<'_, Arc<crate::bridge::Bridge>>) -> crate::bridge::BridgeStatus {
     bridge.status()
@@ -1101,6 +1140,7 @@ pub async fn web2api_open_session(
     source_id: String,
     home_url: String,
 ) -> Result<(), String> {
+    bridge_armed(&state)?;
     {
         let cfg = crate::util::lock(&state.config);
         crate::websession::sync_sources(&cfg.bridge);
@@ -1159,6 +1199,8 @@ pub async fn web2api_start(
     state: State<'_, AppState>,
     bridge: State<'_, Arc<crate::bridge::Bridge>>,
 ) -> Result<crate::bridge::BridgeStatus, String> {
+    bridge_armed(&state)?;
+    ensure_bridge_key(&state)?;
     // Own the Arc before awaiting: the command may outlive the State borrow.
     let b = bridge.inner().clone();
     match b.start().await {
@@ -1202,6 +1244,8 @@ pub async fn web2api_ensure(
     bridge: State<'_, Arc<crate::bridge::Bridge>>,
     model: Option<String>,
 ) -> Result<crate::bridge::BridgeStatus, String> {
+    bridge_armed(&state)?;
+    ensure_bridge_key(&state)?;
     let b = bridge.inner().clone();
     if !b.status().running {
         b.start().await.map_err(|e| {

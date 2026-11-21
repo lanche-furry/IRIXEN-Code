@@ -97,6 +97,9 @@ export function previewConfig(): AppConfig {
     skills: { enabled: [], auto_match: true },
     custom_themes: [],
     bridge: {
+      // The preview shell never enables the bridge: it is the one switch that
+      // has to be a real decision, and a demo fixture is not one.
+      enabled: false,
       auto_start: false,
       port: 8791,
       api_key: '',

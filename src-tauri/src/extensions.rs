@@ -258,6 +258,29 @@ pub fn dir() -> PathBuf {
     crate::config::extensions_dir()
 }
 
+/// A package.json that cannot be parsed at all. Listed, marked broken, and
+/// labelled with the parser's complaint so the user can act on it instead of
+/// wondering where their extension went.
+fn unreadable(dir: &Path, why: &str) -> ExtensionInfo {
+    let name = dir
+        .file_name()
+        .map(|x| x.to_string_lossy().to_string())
+        .unwrap_or_default();
+    ExtensionInfo {
+        id: name.clone(),
+        dir: dir.to_string_lossy().to_string(),
+        name: name.clone(),
+        display_name: name,
+        kind: "vscode".into(),
+        source: "vsix".into(),
+        enabled: true,
+        installed_at: file_mtime(&dir.join("package.json")),
+        broken: true,
+        description: format!("package.json 解析失败：{why}"),
+        ..ExtensionInfo::default()
+    }
+}
+
 fn meta_of(dir: &Path) -> Option<ExtensionInfo> {
     // The manifest decides whether this directory is an extension at all. The
     // sidecar only carries what a manifest cannot express — where it came from,
@@ -266,7 +289,14 @@ fn meta_of(dir: &Path) -> Option<ExtensionInfo> {
     // copied in by hand) must not make the extension invisible. That failure
     // mode is indistinguishable from "the extension does nothing".
     let bytes = std::fs::read(dir.join("package.json")).ok()?;
-    let pkg: PackageJson = serde_json::from_slice(&bytes).ok()?;
+    // A directory without a manifest is not an extension (a README, a cache
+    // dir). A directory *with* a manifest that does not parse is one, and it
+    // gets listed as broken: hiding it produces "I installed it and it is not
+    // there" with nothing to click.
+    let pkg: PackageJson = match serde_json::from_slice(&bytes) {
+        Ok(p) => p,
+        Err(e) => return Some(unreadable(dir, &e.to_string())),
+    };
     let locale = ui_locale();
     let nls = nls_map(dir, &locale);
 
@@ -284,15 +314,37 @@ fn meta_of(dir: &Path) -> Option<ExtensionInfo> {
     // Identity comes from the manifest: a sidecar left over from an older
     // version would otherwise keep re-labelling the extension.
     info.dir = dir.to_string_lossy().to_string();
+    let dir_name = dir
+        .file_name()
+        .map(|x| x.to_string_lossy().to_string())
+        .unwrap_or_default();
     if !pkg.name.is_empty() {
         info.name = pkg.name.clone();
     }
+    if info.name.is_empty() {
+        // A manifest with no usable `name` still sits in a directory whose
+        // name identifies it; an empty name renders as a nameless card.
+        info.name = dir_name.clone();
+    }
     if !pkg.publisher.is_empty() {
         info.publisher = pkg.publisher.clone();
-        info.id = format!("{}.{}", pkg.publisher, pkg.name);
+        info.id = format!("{}.{}", pkg.publisher, info.name);
+    } else if info.id.trim().is_empty() || info.id.trim() == "." {
+        // No publisher at all, so the `publisher.name` template produced "."
+        // or nothing; the directory name is the only honest identifier left.
+        info.id = info.name.clone();
     }
     if !pkg.version.is_empty() {
         info.version = pkg.version.clone();
+    }
+    // Hand-copied directories have no sidecar, so `kind` and `source` kept
+    // their empty defaults and the list drew a VS Code extension with the DSH
+    // badge — and `notice_for` then described the wrong capability set.
+    if info.kind.is_empty() {
+        info.kind = if dir.join("SKILL.md").is_file() { "dsh" } else { "vscode" }.into();
+    }
+    if info.source.is_empty() {
+        info.source = "vsix".into();
     }
     // Recomputing contributions here is what makes newly supported contribution
     // points (`menus`, command icons) show up for extensions installed before
@@ -310,14 +362,20 @@ fn meta_of(dir: &Path) -> Option<ExtensionInfo> {
     };
     info.description = localize_str(&pkg.description, &nls);
     info.entry = pkg.main.trim_start_matches("./").replace('\\', "/");
-    if info.activation.is_empty() {
+    // Refresh from the manifest rather than only filling an empty sidecar: an
+    // extension that added `activationEvents` in an update kept the old list
+    // forever, which reads as "it never activates".
+    if !pkg.activation_events.is_empty() {
         info.activation = pkg.activation_events.clone();
     }
     info.notice = notice_for(&info);
     // Reported here rather than at activation time: "Cannot find module
     // …/dist/index.js" looks like a broken host, when in fact the download was
     // incomplete. The list can say so and offer a reinstall.
-    info.broken = !info.entry.is_empty() && !dir.join(&info.entry).is_file();
+    // `exists`, not `is_file`: `"main": "./out"` names a directory and the host
+    // resolves its index. Only a path that is not there at all means the
+    // package was unpacked incompletely.
+    info.broken = !info.entry.is_empty() && !dir.join(&info.entry).exists();
     Some(info)
 }
 
@@ -403,23 +461,68 @@ pub fn uninstall(id: &str) -> Result<(), String> {
 // manifest parsing
 // ---------------------------------------------------------------------------
 
+/// Manifests are JSON written by several generations of tooling, and they
+/// disagree about types. `main` is occasionally an object, `activationEvents`
+/// is occasionally the bare string `"*"` (VS Code accepted that until 1.74),
+/// and a localised `description` can be `{"value": "…"}`.
+///
+/// A plain `String` field rejects the entire manifest over one of those, and a
+/// rejected manifest used to mean the extension vanished from the list with no
+/// explanation — the single worst failure mode this registry had. These two
+/// helpers take the value that is there and drop what cannot be read.
+fn string_or_default<'de, D>(d: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error as _;
+    let v = serde_json::Value::deserialize(d).map_err(D::Error::custom)?;
+    Ok(match v {
+        serde_json::Value::String(s) => s,
+        // The l10n form of a single string.
+        serde_json::Value::Object(o) => o
+            .get("value")
+            .and_then(|x| x.as_str())
+            .unwrap_or_default()
+            .to_string(),
+        _ => String::new(),
+    })
+}
+
+/// `activationEvents` is `string[]` in every current manifest, `string` in old
+/// ones. Either way the array is a hint, never a reason to reject the package.
+fn string_list<'de, D>(d: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error as _;
+    let v = serde_json::Value::deserialize(d).map_err(D::Error::custom)?;
+    Ok(match v {
+        serde_json::Value::String(s) => vec![s],
+        serde_json::Value::Array(items) => items
+            .into_iter()
+            .filter_map(|x| x.as_str().map(|s| s.to_string()))
+            .collect(),
+        _ => Vec::new(),
+    })
+}
+
 #[derive(Deserialize, Default)]
 #[serde(default)]
 struct PackageJson {
     name: String,
     publisher: String,
     version: String,
-    #[serde(rename = "displayName")]
+    #[serde(rename = "displayName", deserialize_with = "string_or_default")]
     display_name: String,
+    #[serde(deserialize_with = "string_or_default")]
     description: String,
     engines: serde_json::Value,
     contributes: serde_json::Value,
     /// String path or `{ light, dark }`.
-    #[serde(default)]
     icon: serde_json::Value,
-    #[serde(default)]
+    #[serde(deserialize_with = "string_or_default")]
     main: String,
-    #[serde(default, rename = "activationEvents")]
+    #[serde(rename = "activationEvents", deserialize_with = "string_list")]
     activation_events: Vec<String>,
 }
 
@@ -2137,5 +2240,103 @@ mod l10n_tests {
         let out = localize_manifest(&manifest, &dir, "zh-CN");
         assert_eq!(out["title"], "保存");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// The registry's job is to list what is on disk. Every test here is a manifest
+/// that used to make an installed extension invisible — not "broken", not
+/// "unsupported", simply absent, which the user can only read as "the install
+/// did nothing".
+#[cfg(test)]
+mod manifest_tests {
+    use super::*;
+    use std::fs;
+
+    fn temp_ext(tag: &str, manifest: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("irixen-ext-{tag}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("package.json"), manifest).unwrap();
+        dir
+    }
+
+    fn meta(dir: &Path) -> ExtensionInfo {
+        meta_of(dir).unwrap_or_else(|| panic!("{} should be listed", dir.display()))
+    }
+
+    #[test]
+    fn a_legacy_string_activation_event_does_not_hide_the_extension() {
+        let dir = temp_ext(
+            "act-string",
+            r#"{"name":"old","publisher":"acme","version":"1.0.0","activationEvents":"*"}"#,
+        );
+        let info = meta(&dir);
+        assert_eq!(info.id, "acme.old");
+        assert_eq!(info.activation, vec!["*".to_string()]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_non_string_field_is_dropped_not_fatal() {
+        let dir = temp_ext(
+            "types",
+            r#"{"name":"odd","publisher":"acme","version":"1.0.0",
+                "main":{"value":"out/extension.js"},
+                "description":{"value":"本地化描述"},
+                "activationEvents":["onCommand:x", 7, null]}"#,
+        );
+        let info = meta(&dir);
+        assert_eq!(info.description, "本地化描述");
+        // `main` as an object is not a path: no entry, but still listed — this
+        // is a declared-only extension as far as the host is concerned.
+        assert_eq!(info.entry, "");
+        assert!(!info.broken);
+        assert_eq!(info.activation, vec!["onCommand:x".to_string()]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_unparseable_manifest_is_listed_as_broken() {
+        let dir = temp_ext("broken", "{ this is not json ");
+        let info = meta(&dir);
+        assert!(info.broken, "a manifest that cannot be read is broken, not gone");
+        assert!(info.description.contains("解析失败"), "{}", info.description);
+        assert_eq!(info.enabled, true);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_directory_without_a_manifest_is_not_an_extension() {
+        let dir = std::env::temp_dir().join(format!("irixen-ext-empty-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        assert!(meta_of(&dir).is_none());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_missing_name_falls_back_to_the_directory() {
+        let dir = temp_ext("nameless", r#"{"publisher":"acme","version":"1.0.0"}"#);
+        let info = meta(&dir);
+        let folder = dir.file_name().unwrap().to_string_lossy().to_string();
+        assert_eq!(info.name, folder);
+        // The publisher is still known, so the id keeps its `publisher.name`
+        // shape; what mattered is that the card is not nameless.
+        assert_eq!(info.id, format!("acme.{folder}"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_hand_copied_extension_is_not_labelled_a_skill_pack() {
+        let dir = temp_ext(
+            "nosidecar",
+            r#"{"name":"plain","publisher":"acme","version":"1.0.0",
+                "engines":{"vscode":"^1.80.0"},
+                "contributes":{"themes":[{"label":"T","uiTheme":"vs-dark","path":"./t.json"}]}}"#,
+        );
+        let info = meta(&dir);
+        assert_eq!(info.kind, "vscode", "no SKILL.md, so not a skill pack");
+        assert_eq!(info.source, "vsix");
+        let _ = fs::remove_dir_all(&dir);
     }
 }

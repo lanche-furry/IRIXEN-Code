@@ -493,6 +493,16 @@ pub fn default_model_routes() -> Vec<ModelRoute> {
 /// Web2API — a local OpenAI/Anthropic-compatible endpoint over web sessions.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BridgeConfig {
+    /// The master switch, and it is off for everyone who has not asked for it.
+    ///
+    /// Nothing about this feature starts on its own: no listener, no hidden
+    /// browser session, no provider in the model picker. `auto_start` and
+    /// `auto_ensure` are *second-level* switches that only mean anything once
+    /// this one is on, because reverse-proxying a vendor's web UI is the user's
+    /// decision to make — with its own consequences — not a default an install
+    /// slips them into. It lives under Settings → Advanced for the same reason.
+    #[serde(default)]
+    pub enabled: bool,
     #[serde(default)]
     pub auto_start: bool,
     #[serde(default = "default_bridge_port")]
@@ -601,6 +611,7 @@ impl BridgeConfig {
 impl Default for BridgeConfig {
     fn default() -> Self {
         BridgeConfig {
+            enabled: false,
             auto_start: false,
             port: default_bridge_port(),
             api_key: String::new(),
@@ -944,7 +955,17 @@ impl AppConfig {
         let dir = base_dir();
         std::fs::create_dir_all(&dir)?;
         let text = serde_json::to_string_pretty(self)?;
-        std::fs::write(config_path(), text)?;
+        let path = config_path();
+        std::fs::write(&path, text)?;
+        // `config.json` holds provider API keys and any session cookies the
+        // user typed in. On Unix the default umask makes a fresh file
+        // world-readable, which is not what "my keys" should mean. Windows has
+        // no equivalent here (the profile directory is already per-user).
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+        }
         Ok(())
     }
 
@@ -958,6 +979,11 @@ impl AppConfig {
     /// key can never produce the "invalid api key" 401 the agent used to hit.
     pub fn sync_web2api_provider(&mut self) {
         let preset = web2api_provider(&self.bridge);
+        // The provider is only ever as switchable as the master switch in
+        // Settings → Advanced. Without this, turning that off would leave a
+        // loopback endpoint in the picker that cannot answer (the listener is
+        // gone), and the next message would die on a closed port.
+        let master = self.bridge.enabled;
         if let Some(p) = self
             .providers
             .iter_mut()
@@ -967,6 +993,9 @@ impl AppConfig {
             p.api_key = preset.api_key;
             p.protocol = Protocol::Openai;
             p.models_path = preset.models_path;
+            if !master {
+                p.enabled = false;
+            }
         } else {
             self.providers.insert(0, preset);
         }
@@ -994,6 +1023,10 @@ impl AppConfig {
     /// Enable/disable the built-in provider and persist, used by the bridge
     /// start/stop commands so the agent's model list follows the bridge.
     pub fn set_web2api_enabled(&mut self, on: bool) {
+        // `on` is the second-level switch (bridge running). The master switch
+        // in Settings → Advanced outranks it: with that off there is no bridge
+        // to point a provider at, whatever a stale command asks for.
+        let on = on && self.bridge.enabled;
         self.sync_web2api_provider();
         if let Some(p) = self
             .providers

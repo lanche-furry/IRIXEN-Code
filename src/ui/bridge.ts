@@ -5,7 +5,7 @@
 // running server until Save. That matters here more than in other panels:
 // a half-typed session cookie must not be picked up by the next request.
 
-import { app, emit, on } from '../core/state';
+import { app, emit } from '../core/state';
 import { api, errText } from '../core/api';
 import { h, clear, copyText } from '../core/dom';
 import { icon } from './icons';
@@ -43,12 +43,20 @@ let status: BridgeStatus | null = null;
 let sessions: WebSessionInfo[] = [];
 let sessionSig = '';
 let poll: number | null = null;
-let pollingHooked = false;
 let draft: BridgeConfig | null = null;
 
 const clone = (c: BridgeConfig): BridgeConfig => JSON.parse(JSON.stringify(c)) as BridgeConfig;
 
-export function mountBridge(dock: HTMLElement) {
+/**
+ * Mounts the panel into `host` and returns its disposer.
+ *
+ * This used to be a dock surface of its own. It now lives under Settings →
+ * Advanced, behind a master switch, so polling belongs to the mount: closing
+ * the modal tears the panel down and nothing may keep a 3 s timer alive after
+ * that. The old code bound the interval to `app.surface`, which only worked
+ * because there was exactly one place the panel could ever appear.
+ */
+export function mountBridge(host: HTMLElement): () => void {
   root = h('div', { class: 'bridge', dataset: { panel: 'bridge' } });
 
   dotEl = h('span', { class: 'sb-dot' });
@@ -118,26 +126,21 @@ export function mountBridge(dock: HTMLElement) {
   );
 
   root.append(head, h('div', { class: 'bridge-body' }, configEl, testCard, logCard));
-  dock.append(root);
+  host.append(root);
 
   renderConfig();
   void refreshBridge();
-  // Poll only while the Web2API panel is actually on screen. The old code
-  // left a 3 s interval running for the entire app lifetime, waking the
-  // renderer even when nobody had ever opened the bridge.
-  if (!pollingHooked) {
-    pollingHooked = true;
-    on('surface', () => {
-      if (app.surface === 'bridge') {
-        startPolling();
-        void refreshBridge();
-        void refreshSessions(false);
-      } else {
-        stopPolling();
-      }
-    });
-  }
-  if (app.surface === 'bridge') startPolling();
+  void refreshSessions(false);
+  startPolling();
+
+  return () => {
+    stopPolling();
+    root?.remove();
+    root = null;
+    // A pending paint would otherwise write into a detached tree; nulling the
+    // draft also makes a late `apply()` a no-op instead of a surprise save.
+    draft = null;
+  };
 }
 
 /* ------------------------------------------------------------------ form */

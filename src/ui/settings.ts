@@ -11,9 +11,10 @@ import { debounce } from '../core/dom';
 import { isLoopback } from '../core/providers';
 import { ALL_EFFORTS, effortLabel } from '../core/effort';
 import { openOnboarding } from './onboarding';
+import { mountBridge } from './bridge';
 import type { AppConfig, AppUpdate, Effort, McpServerConfig, ProviderConfig, Protocol } from '../types';
 
-type Tab = 'providers' | 'agent' | 'appearance' | 'mcp' | 'about';
+type Tab = 'providers' | 'agent' | 'appearance' | 'mcp' | 'advanced' | 'about';
 
 let overlay: HTMLElement | null = null;
 let draft: AppConfig | null = null;
@@ -23,6 +24,10 @@ let tabsEl: HTMLElement | null = null;
 let titleEl: HTMLElement | null = null;
 let closeBtn: HTMLButtonElement | null = null;
 let unsubLang: (() => void) | null = null;
+/** Panels that own a timer or a subscription. Cleared on every tab switch and
+ *  on close: the Web2API panel polls status, and a timer outliving its DOM is
+ *  how you get a renderer that never idles. */
+let tabDisposers: (() => void)[] = [];
 
 const persistSoon = debounce(() => void persist(), 500);
 
@@ -106,6 +111,8 @@ function onKey(e: KeyboardEvent) {
 }
 
 export function closeSettings() {
+  for (const d of tabDisposers) d();
+  tabDisposers = [];
   if (overlay) overlay.remove();
   overlay = null;
   titleEl = null;
@@ -124,6 +131,7 @@ function renderTabs() {
     { id: 'agent', label: t('settings.agent'), icon: 'spark' },
     { id: 'appearance', label: t('settings.appearance'), icon: 'sun' },
     { id: 'mcp', label: t('settings.mcp'), icon: 'terminal' },
+    { id: 'advanced', label: t('settings.advanced'), icon: 'plug' },
     { id: 'about', label: t('settings.about'), icon: 'info' },
   ];
   for (const d of defs) {
@@ -146,11 +154,14 @@ function renderTabs() {
 
 function renderBody() {
   if (!bodyEl || !draft) return;
+  for (const d of tabDisposers) d();
+  tabDisposers = [];
   clear(bodyEl);
   if (tab === 'providers') bodyEl.append(providersTab());
   else if (tab === 'agent') bodyEl.append(agentTab());
   else if (tab === 'appearance') bodyEl.append(appearanceTab());
   else if (tab === 'mcp') bodyEl.append(mcpTab());
+  else if (tab === 'advanced') bodyEl.append(advancedTab());
   else bodyEl.append(aboutTab());
 }
 
@@ -920,6 +931,78 @@ async function addMcp(redraw: () => void) {
 }
 
 /* ------------------------------------------------------------------- about */
+
+/* ---------------------------------------------------------------- advanced */
+
+/**
+ * Everything that is not a setting so much as a decision.
+ *
+ * The web bridge (Web2API) lives here rather than in the dock because it
+ * reverse-proxies a vendor's own web UI: running it can put an account at risk
+ * with that vendor, and nothing about that belongs in a default install. It is
+ * off until someone reads the paragraph and flips the switch, and the rest of
+ * the panel does not even exist until then.
+ */
+function advancedTab(): HTMLElement {
+  if (!draft) return h('div');
+  const b = draft.bridge;
+  const wrap = h('div', { class: 'col', style: { display: 'flex', flexDirection: 'column', gap: '12px' } });
+
+  const sw = h('div', { class: `switch${b.enabled ? ' on' : ''}` });
+  sw.addEventListener('click', () => {
+    if (!draft) return;
+    const next = !sw.classList.contains('on');
+    sw.classList.toggle('on', next);
+    draft.bridge.enabled = next;
+    void applyMasterSwitch(next);
+  });
+
+  const head = h('div', { class: 'adv-row' },
+    h('div', { class: 'adv-text' },
+      h('div', { class: 'adv-title' }, t('adv.bridge')),
+      h('div', { class: 'hint' }, t('adv.bridgeHint')),
+    ),
+    sw,
+  );
+
+  wrap.append(
+    h('h3', null, t('settings.advanced')),
+    h('div', { class: 'adv-card' }, head,
+      h('div', { class: 'adv-warn' }, t('adv.bridgeWarn')),
+      b.enabled
+        ? null
+        : h('div', { class: 'hint', style: { marginTop: '8px' } }, t('adv.bridgeOff')),
+    ),
+  );
+
+  // Only build the panel when it is switched on: mounting it while off would
+  // poll a bridge that is not allowed to exist, and would put the local
+  // endpoint and its token on screen for a feature the user never enabled.
+  if (b.enabled) {
+    const host = h('div', { class: 'bridge-host' });
+    wrap.append(host);
+    const dispose = mountBridge(host);
+    tabDisposers.push(dispose);
+  }
+
+  return wrap;
+}
+
+/** Persist the master switch, then take the listener down if it just closed. */
+async function applyMasterSwitch(on: boolean) {
+  await persist();
+  if (!on) {
+    // `web2api_stop` is a no-op when it was never started; the call is here so
+    // closing the switch actually closes the port instead of leaving a socket
+    // that no panel can reach any more.
+    try {
+      await api.web2apiStop();
+    } catch {
+      /* not running — nothing to stop */
+    }
+  }
+  renderBody();
+}
 
 /** Survives tab switches and language changes so reopening About does not
  *  fire another GitHub request. Only an explicit button press re-checks. */

@@ -57,7 +57,6 @@ function builtins(): Item[] {
     { label: t('nav.skills'), group: t('app.name'), run: () => selectView('skills') },
     { label: t('nav.stats'), group: t('app.name'), run: () => selectView('stats') },
     { label: t('rail.review'), group: t('app.name'), run: () => setSurface('review') },
-    { label: t('rail.bridge'), group: t('app.name'), run: () => setSurface('bridge') },
     { label: t('panel.terminal'), group: t('app.name'), hint: 'Ctrl+J', run: () => togglePanel() },
     { label: t('editor.runFile'), group: t('app.name'), hint: 'F5', run: () => runActiveFile() },
     { label: t('editor.formatDoc'), group: t('app.name'), hint: 'Ctrl+Shift+I', run: () => void formatDocument() },

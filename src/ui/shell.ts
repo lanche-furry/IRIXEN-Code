@@ -23,7 +23,6 @@ import { mountSkills, loadSkills } from './skills';
 import { mountStats, refreshStats } from './stats';
 import { mountChat, refreshComposer, renderHead, reconcileProviders } from './chat';
 import { mountReview, refreshReview, reviewCount } from './review';
-import { mountBridge, refreshBridge } from './bridge';
 import { mountExtensions, refreshExtensions } from './extensions';
 import { mountExtGlue } from './extglue';
 import { mountWebviews } from './webview';
@@ -88,7 +87,6 @@ export function mountShell(host: HTMLElement) {
 
   mountChat(dock);
   mountReview(dock);
-  mountBridge(dock);
   mountExtensions(dock);
   mountEditor(editorArea);
   mountExtGlue();
@@ -364,7 +362,6 @@ function paintRail() {
 
   railEl.append(
     dockBtn('chat', 'chat', t('rail.chat')),
-    dockBtn('bridge', 'plug', t('rail.bridge')),
     dockBtn('extensions', 'puzzle', t('rail.extensions'), app.hosts.filter((h) => h.state === 'running').length),
   );
 
@@ -412,7 +409,6 @@ export function setSurface(surface: Surface) {
   if (surface === 'chat') refreshComposer();
   else if (surface === 'review') void refreshReview();
   else if (surface === 'extensions') void refreshExtensions();
-  else if (surface === 'bridge') void refreshBridge();
   emit('surface', surface);
 }
 
@@ -728,11 +724,9 @@ function remountPanels() {
   clear(dock);
   mountChat(dock);
   mountReview(dock);
-  mountBridge(dock);
   mountExtensions(dock);
   setSurface(app.surface);
   if (app.surface === 'review') void refreshReview();
-  else if (app.surface === 'bridge') void refreshBridge();
   else if (app.surface === 'extensions') void refreshExtensions();
 }
 

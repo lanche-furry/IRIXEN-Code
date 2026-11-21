@@ -550,15 +550,58 @@ async fn route(
     }
 }
 
+/// A bearer token for the loopback endpoint, generated the first time the
+/// bridge is started when the user never made one.
+///
+/// `std::collections::hash_map::RandomState` is seeded from the OS CSPRNG — it
+/// is what keeps HashMap safe from hash flooding — so harvesting a few of them
+/// and hashing the output gives 128 bits without adding a dependency. It
+/// matters because this endpoint answers with the user's logged-in browser
+/// session: an empty key used to mean "no auth", which in practice meant every
+/// other process on the machine.
+pub fn random_key() -> String {
+    use sha2::{Digest, Sha256};
+    use std::collections::hash_map::RandomState;
+    use std::hash::{BuildHasher, Hasher};
+
+    let mut digest = Sha256::new();
+    digest.update(std::process::id().to_le_bytes());
+    for _ in 0..4 {
+        let mut h = RandomState::new().build_hasher();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(0);
+        h.write_u64(now);
+        digest.update(h.finish().to_le_bytes());
+    }
+    digest.finalize()[..16]
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+/// Length-independent comparison, so a wrong token cannot be discovered one
+/// byte at a time by timing the answer.
+fn token_eq(given: &str, key: &str) -> bool {
+    let (a, b) = (given.trim().as_bytes(), key.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    a.iter()
+        .zip(b.iter())
+        .fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
 fn authorized(req: &Request, key: &str) -> bool {
     if let Some(auth) = req.header("authorization") {
         if let Some(token) = auth.strip_prefix("Bearer ").or_else(|| auth.strip_prefix("bearer ")) {
-            if token.trim() == key {
+            if token_eq(token, key) {
                 return true;
             }
         }
     }
-    req.header("x-api-key").map(|v| v.trim() == key).unwrap_or(false)
+    req.header("x-api-key").map(|v| token_eq(v, key)).unwrap_or(false)
 }
 
 /// Name the route in the request log even when the upstream call failed.

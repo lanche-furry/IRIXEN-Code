@@ -83,10 +83,11 @@ pub fn run() {
             websession::sync_sources(&cfg.bridge);
             // Hidden WebView2 windows are by far the most expensive thing this
             // app can start — one renderer process group per source. They only
-            // come up when the user explicitly enabled "start on launch" in
-            // the Web2API panel. A manual start (`web2api_start` / `ensure`)
-            // brings up the watcher and the sessions on demand instead.
-            if cfg.bridge.auto_start {
+            // come up when the user turned the bridge on in Settings → Advanced
+            // *and* enabled "start on launch" there. A manual start
+            // (`web2api_start` / `ensure`) brings up the watcher and the
+            // sessions on demand instead.
+            if cfg.bridge.enabled && cfg.bridge.auto_start {
                 websession::start_watcher();
                 let boot_bridge = cfg.bridge.clone();
                 tauri::async_runtime::spawn(async move {
@@ -134,9 +135,12 @@ pub fn run() {
             app.manage(exthost.clone());
 
             // Web2API bridge — a local OpenAI/Anthropic-compatible endpoint.
+            // Nothing is bound to a port unless the master switch in
+            // Settings → Advanced is on; an install that never opts in leaves
+            // no listener behind.
             let bridge = Arc::new(Bridge::new(config.clone()));
             app.manage(bridge.clone());
-            if cfg.bridge.auto_start {
+            if cfg.bridge.enabled && cfg.bridge.auto_start {
                 let bridge = bridge.clone();
                 tauri::async_runtime::spawn(async move {
                     if let Err(e) = bridge.start().await {
